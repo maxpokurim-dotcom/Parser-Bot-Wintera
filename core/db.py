@@ -1,12 +1,13 @@
 """
 Supabase Database Client - Extended Version
 With Account Folders, Multi-Account Campaigns, Dynamic Reports
-Static Menu Support
+Static Menu Support + Storage Support
 """
 
 import os
 import logging
 import requests
+import time
 from typing import Optional, List, Dict, Any, Set
 from datetime import datetime, timedelta
 
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class DB:
-    """Supabase REST core Client"""
+    """Supabase REST API Client"""
 
     _url: Optional[str] = None
     _key: Optional[str] = None
@@ -31,12 +32,13 @@ class DB:
         _, key = cls._get_config()
         return {
             'apikey': key,
+            'Authorization': f'Bearer {key}',
             'Content-Type': 'application/json',
             'Prefer': 'return=representation'
         }
 
     @classmethod
-    def _core_url(cls, table: str) -> str:
+    def _api_url(cls, table: str) -> str:
         url, _ = cls._get_config()
         return f"{url}/rest/v1/{table}"
 
@@ -61,7 +63,7 @@ class DB:
             if limit:
                 params['limit'] = limit
 
-            response = requests.get(cls._core_url(table), headers=cls._headers(), params=params, timeout=10)
+            response = requests.get(cls._api_url(table), headers=cls._headers(), params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
             return data[0] if single and data else (None if single else data)
@@ -72,7 +74,7 @@ class DB:
     @classmethod
     def _insert(cls, table: str, data: dict) -> Optional[Dict]:
         try:
-            response = requests.post(cls._core_url(table), headers=cls._headers(), json=data, timeout=10)
+            response = requests.post(cls._api_url(table), headers=cls._headers(), json=data, timeout=10)
             response.raise_for_status()
             result = response.json()
             return result[0] if result else None
@@ -89,7 +91,7 @@ class DB:
                     params[k] = 'is.null'
                 else:
                     params[k] = f'eq.{v}'
-            response = requests.patch(cls._core_url(table), headers=cls._headers(), json=data, params=params, timeout=10)
+            response = requests.patch(cls._api_url(table), headers=cls._headers(), json=data, params=params, timeout=10)
             response.raise_for_status()
             return True
         except Exception as e:
@@ -105,7 +107,7 @@ class DB:
                 return False
             params = {k: f'eq.{v}' for k, v in filters.items()}
             logger.info(f"DELETE {table} with filters: {filters}")
-            response = requests.delete(cls._core_url(table), headers=cls._headers(), params=params, timeout=10)
+            response = requests.delete(cls._api_url(table), headers=cls._headers(), params=params, timeout=10)
             response.raise_for_status()
             logger.info(f"DELETE {table}: success with filters {filters}")
             return True
@@ -125,7 +127,7 @@ class DB:
                         params[k] = 'is.null'
                     else:
                         params[k] = f'eq.{v}'
-            response = requests.get(cls._core_url(table), headers=headers, params=params, timeout=10)
+            response = requests.get(cls._api_url(table), headers=headers, params=params, timeout=10)
             content_range = response.headers.get('content-range', '*/0')
             return int(content_range.split('/')[-1])
         except Exception:
@@ -186,6 +188,163 @@ class DB:
             kwargs['created_at'] = datetime.utcnow().isoformat()
             return cls._insert('user_settings', kwargs) is not None
 
+    # ==================== SUPABASE STORAGE ====================
+
+    @classmethod
+    def _storage_url(cls, bucket: str, path: str = '') -> str:
+        """Get storage URL"""
+        url, _ = cls._get_config()
+        if path:
+            return f"{url}/storage/v1/object/{bucket}/{path}"
+        return f"{url}/storage/v1/object/{bucket}"
+
+    @classmethod
+    def _storage_headers(cls, content_type: str = 'application/octet-stream') -> dict:
+        """Get headers for storage requests"""
+        _, key = cls._get_config()
+        return {
+            'apikey': key,
+            'Authorization': f'Bearer {key}',
+            'Content-Type': content_type
+        }
+
+    @classmethod
+    def upload_template_media(cls, user_id: int, template_id: int,
+                              file_content: bytes, file_extension: str,
+                              media_type: str) -> Optional[str]:
+        """
+        Upload media to Supabase Storage
+        Returns public URL or None
+        """
+        try:
+            # Generate unique filename
+            timestamp = int(time.time())
+            filename = f"{user_id}/{template_id}_{timestamp}{file_extension}"
+
+            # Determine content type
+            content_types = {
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.png': 'image/png',
+                '.gif': 'image/gif',
+                '.webp': 'image/webp',
+                '.mp4': 'video/mp4',
+                '.mov': 'video/quicktime',
+                '.avi': 'video/x-msvideo',
+                '.mp3': 'audio/mpeg',
+                '.ogg': 'audio/ogg',
+                '.wav': 'audio/wav',
+                '.pdf': 'application/pdf',
+            }
+            content_type = content_types.get(file_extension.lower(), 'application/octet-stream')
+
+            # Upload to Storage
+            url, key = cls._get_config()
+            upload_url = f"{url}/storage/v1/object/templates/{filename}"
+
+            headers = {
+                'apikey': key,
+                'Authorization': f'Bearer {key}',
+                'Content-Type': content_type,
+                'x-upsert': 'true'  # Overwrite if exists
+            }
+
+            response = requests.post(
+                upload_url,
+                headers=headers,
+                data=file_content,
+                timeout=60
+            )
+
+            if response.ok:
+                # Get public URL
+                public_url = f"{url}/storage/v1/object/public/templates/{filename}"
+                logger.info(f"Uploaded media to Storage: {public_url}")
+                return public_url
+            else:
+                logger.error(f"Storage upload failed: {response.status_code} - {response.text}")
+                return None
+
+        except Exception as e:
+            logger.error(f"upload_template_media error: {e}")
+            return None
+
+    @classmethod
+    def delete_template_media(cls, media_url: str) -> bool:
+        """Delete media from Supabase Storage"""
+        try:
+            if not media_url or '/storage/v1/object/public/templates/' not in media_url:
+                return True  # Nothing to delete
+
+            # Extract path from URL
+            path = media_url.split('/storage/v1/object/public/templates/')[-1]
+
+            url, key = cls._get_config()
+            delete_url = f"{url}/storage/v1/object/templates/{path}"
+
+            headers = {
+                'apikey': key,
+                'Authorization': f'Bearer {key}'
+            }
+
+            response = requests.delete(delete_url, headers=headers, timeout=30)
+
+            if response.ok:
+                logger.info(f"Deleted media from Storage: {path}")
+                return True
+            else:
+                logger.warning(f"Storage delete warning: {response.status_code} - {response.text}")
+                return False
+
+        except Exception as e:
+            logger.error(f"delete_template_media error: {e}")
+            return False
+
+    @classmethod
+    def create_template_with_media(cls, user_id: int, name: str, text: str,
+                                   file_content: bytes = None, file_extension: str = None,
+                                   media_type: str = None, media_file_id: str = None,
+                                   folder_id: int = None) -> Optional[Dict]:
+        """
+        Create template and upload media to Storage if provided
+        """
+        # First create template to get ID
+        data = {
+            'owner_id': user_id,
+            'name': name,
+            'text': text,
+            'created_at': datetime.utcnow().isoformat()
+        }
+        if folder_id:
+            data['folder_id'] = folder_id
+
+        # Keep original file_id for fallback
+        if media_file_id:
+            data['media_file_id'] = media_file_id
+        if media_type:
+            data['media_type'] = media_type
+
+        template = cls._insert('message_templates', data)
+
+        if not template:
+            return None
+
+        # Upload media to Storage if we have file content
+        if file_content and file_extension and media_type:
+            media_url = cls.upload_template_media(
+                user_id, template['id'],
+                file_content, file_extension, media_type
+            )
+
+            if media_url:
+                # Update template with Storage URL
+                cls._update('message_templates',
+                           {'media_url': media_url},
+                           {'id': template['id']})
+                template['media_url'] = media_url
+
+        return template
+
     # ==================== TEMPLATES ====================
 
     @classmethod
@@ -203,7 +362,8 @@ class DB:
 
     @classmethod
     def create_template(cls, user_id: int, name: str, text: str,
-                       media_file_id: str = None, media_type: str = None, folder_id: int = None) -> Optional[Dict]:
+                       media_file_id: str = None, media_type: str = None, 
+                       folder_id: int = None, media_url: str = None) -> Optional[Dict]:
         data = {
             'owner_id': user_id,
             'name': name,
@@ -216,8 +376,15 @@ class DB:
             data['media_type'] = media_type
         if folder_id:
             data['folder_id'] = folder_id
+        if media_url:
+            data['media_url'] = media_url
 
         return cls._insert('message_templates', data)
+
+    @classmethod
+    def update_template(cls, template_id: int, **kwargs) -> bool:
+        kwargs['updated_at'] = datetime.utcnow().isoformat()
+        return cls._update('message_templates', kwargs, {'id': template_id})
 
     @classmethod
     def delete_template(cls, template_id: int) -> bool:
@@ -225,7 +392,12 @@ class DB:
         if not template:
             logger.warning(f"delete_template: template {template_id} not found")
             return False
-        # Удаляем ВСЕ зависимости
+        
+        # Delete media from Storage if exists
+        if template.get('media_url'):
+            cls.delete_template_media(template['media_url'])
+        
+        # Delete dependencies
         cls._delete('campaigns', {'template_id': template_id})
         cls._delete('scheduled_mailings', {'template_id': template_id})
         return cls._delete('message_templates', {'id': template_id})
@@ -235,13 +407,17 @@ class DB:
         orig = cls.get_template(template_id)
         if not orig:
             return None
+        
+        # Note: We copy only file_id, not the Storage URL
+        # To copy Storage file, would need to download and re-upload
         return cls.create_template(
             user_id,
             f"{orig['name']} (копия)",
             orig.get('text', ''),
             orig.get('media_file_id'),
             orig.get('media_type'),
-            orig.get('folder_id')
+            orig.get('folder_id'),
+            None  # Don't copy media_url
         )
 
     @classmethod
@@ -314,7 +490,7 @@ class DB:
             params = {'folder_id': f'eq.{folder_id}'}
             data = {'folder_id': None, 'updated_at': datetime.utcnow().isoformat()}
             response = requests.patch(
-                cls._core_url('telegram_accounts'),
+                cls._api_url('telegram_accounts'),
                 headers=cls._headers(),
                 json=data,
                 params=params,
@@ -352,7 +528,7 @@ class DB:
                 'folder_id': 'is.null',
                 'order': 'created_at.desc'
             }
-            response = requests.get(cls._core_url('telegram_accounts'), headers=cls._headers(), params=params, timeout=10)
+            response = requests.get(cls._api_url('telegram_accounts'), headers=cls._headers(), params=params, timeout=10)
             return response.json() if response.ok else []
         except Exception as e:
             logger.error(f"get_accounts_without_folder error: {e}")
@@ -402,7 +578,7 @@ class DB:
             return False
         user_id = account.get('owner_id')
         phone = account.get('phone')
-        # Удаляем ВСЕ зависимости
+        # Delete dependencies
         cls._delete('campaigns', {'account_id': account_id})
         cls._delete('campaigns', {'current_account_id': account_id})
         cls._delete('sent_messages', {'account_id': account_id})
@@ -490,7 +666,7 @@ class DB:
             headers = cls._headers()
             headers['Prefer'] = 'count=exact'
             params = {'select': 'id', 'source_id': f'eq.{source_id}', 'sent': 'eq.true'}
-            response = requests.get(cls._core_url('parsed_audiences'), headers=headers, params=params, timeout=10)
+            response = requests.get(cls._api_url('parsed_audiences'), headers=headers, params=params, timeout=10)
             sent = int(response.headers.get('content-range', '*/0').split('/')[-1])
         except Exception:
             sent = 0
@@ -550,7 +726,7 @@ class DB:
                 'or': f'(username.ilike.%{query}%,first_name.ilike.%{query}%,last_name.ilike.%{query}%)',
                 'limit': str(limit)
             }
-            response = requests.get(cls._core_url('parsed_audiences'), headers=cls._headers(), params=params, timeout=10)
+            response = requests.get(cls._api_url('parsed_audiences'), headers=cls._headers(), params=params, timeout=10)
             return response.json() if response.ok else []
         except Exception as e:
             logger.error(f"search_in_audience error: {e}")
@@ -568,7 +744,7 @@ class DB:
             if only_unsent:
                 params['sent'] = 'eq.false'
 
-            response = requests.get(cls._core_url('parsed_audiences'), headers=cls._headers(), params=params, timeout=10)
+            response = requests.get(cls._api_url('parsed_audiences'), headers=cls._headers(), params=params, timeout=10)
             return response.json() if response.ok else []
         except Exception as e:
             logger.error(f"get_audience_with_filters error: {e}")
@@ -665,7 +841,7 @@ class DB:
                 'status': 'in.(pending,running,paused)',
                 'order': 'created_at.desc'
             }
-            response = requests.get(cls._core_url('campaigns'), headers=cls._headers(), params=params, timeout=10)
+            response = requests.get(cls._api_url('campaigns'), headers=cls._headers(), params=params, timeout=10)
             return response.json() if response.ok else []
         except Exception as e:
             logger.error(f"get_active_campaigns error: {e}")
@@ -737,7 +913,7 @@ class DB:
                 'order': 'scheduled_at.asc',
                 'limit': '10'
             }
-            response = requests.get(cls._core_url('scheduled_mailings'), headers=cls._headers(), params=params, timeout=10)
+            response = requests.get(cls._api_url('scheduled_mailings'), headers=cls._headers(), params=params, timeout=10)
             return response.json() if response.ok else []
         except Exception as e:
             logger.error(f"get_due_scheduled_mailings error: {e}")
@@ -756,7 +932,7 @@ class DB:
             return False
         return cls._delete('scheduled_mailings', {'id': mailing_id})
 
-    # ==================== SENT MESSAGES (for deduplication) ====================
+    # ==================== SENT MESSAGES ====================
 
     @classmethod
     def record_sent_message(cls, campaign_id: int, user_tg_id: int,
@@ -773,7 +949,7 @@ class DB:
                 data['error_message'] = error[:200]
             headers = cls._headers()
             headers['Prefer'] = 'resolution=merge-duplicates,return=representation'
-            response = requests.post(cls._core_url('sent_messages'), headers=headers, json=data, timeout=10)
+            response = requests.post(cls._api_url('sent_messages'), headers=headers, json=data, timeout=10)
             return response.ok
         except Exception as e:
             logger.error(f"record_sent_message error: {e}")
@@ -786,7 +962,7 @@ class DB:
                 'select': 'user_tg_id',
                 'campaign_id': f'eq.{campaign_id}'
             }
-            response = requests.get(cls._core_url('sent_messages'), headers=cls._headers(), params=params, timeout=10)
+            response = requests.get(cls._api_url('sent_messages'), headers=cls._headers(), params=params, timeout=10)
             if response.ok:
                 return {u['user_tg_id'] for u in response.json() if u.get('user_tg_id')}
             return set()
@@ -822,7 +998,7 @@ class DB:
                 'owner_id': f'eq.{user_id}',
                 'created_at': f'gte.{start_date}'
             }
-            response = requests.get(cls._core_url('error_logs'), headers=cls._headers(), params=params, timeout=10)
+            response = requests.get(cls._api_url('error_logs'), headers=cls._headers(), params=params, timeout=10)
             errors = response.json() if response.ok else []
             stats = {}
             for err in errors:
@@ -877,7 +1053,7 @@ class DB:
                 'status': 'eq.flood_wait',
                 'flood_wait_until': f'lte.{now}'
             }
-            response = requests.get(cls._core_url('telegram_accounts'), headers=cls._headers(), params=params, timeout=10)
+            response = requests.get(cls._api_url('telegram_accounts'), headers=cls._headers(), params=params, timeout=10)
             return response.json() if response.ok else []
         except Exception as e:
             logger.error(f"get_accounts_ready_after_flood error: {e}")
