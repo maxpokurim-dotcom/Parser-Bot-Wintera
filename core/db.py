@@ -30,8 +30,7 @@ class DB:
     def _headers(cls) -> dict:
         _, key = cls._get_config()
         return {
-            'apikey': key,
-            'Authorization': f'Bearer {key}',
+            'apikey': key,  # ✅ only this is needed for Service Role Key
             'Content-Type': 'application/json',
             'Prefer': 'return=representation'
         }
@@ -61,7 +60,7 @@ class DB:
                 params['order'] = order
             if limit:
                 params['limit'] = limit
-            
+
             response = requests.get(cls._core_url(table), headers=cls._headers(), params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
@@ -99,10 +98,22 @@ class DB:
 
     @classmethod
     def _delete(cls, table: str, filters: dict) -> bool:
+        """
+        Удаляет запись из таблицы.
+        Возвращает True только если запись существовала И была удалена.
+        """
         try:
+            # Сначала проверяем, существует ли запись
+            exists = cls._select(table, filters=filters, single=True)
+            if not exists:
+                logger.warning(f"DELETE {table}: record not found with filters {filters}")
+                return False
+
             params = {k: f'eq.{v}' for k, v in filters.items()}
+            logger.info(f"DELETE {table} with filters: {filters}")
             response = requests.delete(cls._core_url(table), headers=cls._headers(), params=params, timeout=10)
             response.raise_for_status()
+            logger.info(f"DELETE {table}: success with filters {filters}")
             return True
         except Exception as e:
             logger.error(f"DELETE {table}: {e}")
@@ -158,12 +169,12 @@ class DB:
     def get_user_settings(cls, user_id: int) -> Dict:
         settings = cls._select('user_settings', filters={'user_id': user_id}, single=True)
         return settings or {
-            'user_id': user_id, 
-            'quiet_hours_start': None, 
+            'user_id': user_id,
+            'quiet_hours_start': None,
             'quiet_hours_end': None,
-            'timezone': 'Europe/Moscow', 
+            'timezone': 'Europe/Moscow',
             'daily_limit': 100,
-            'notify_on_complete': True, 
+            'notify_on_complete': True,
             'notify_on_error': True,
             'delay_min': 30,
             'delay_max': 90
@@ -173,7 +184,7 @@ class DB:
     def update_user_settings(cls, user_id: int, **kwargs) -> bool:
         existing = cls._select('user_settings', filters={'user_id': user_id}, single=True)
         kwargs['updated_at'] = datetime.utcnow().isoformat()
-        
+
         if existing:
             return cls._update('user_settings', kwargs, {'user_id': user_id})
         else:
@@ -211,11 +222,15 @@ class DB:
             data['media_type'] = media_type
         if folder_id:
             data['folder_id'] = folder_id
-        
+
         return cls._insert('message_templates', data)
 
     @classmethod
     def delete_template(cls, template_id: int) -> bool:
+        template = cls._select('message_templates', filters={'id': template_id}, single=True)
+        if not template:
+            logger.warning(f"delete_template: template {template_id} not found")
+            return False
         return cls._delete('message_templates', {'id': template_id})
 
     @classmethod
@@ -224,11 +239,11 @@ class DB:
         if not orig:
             return None
         return cls.create_template(
-            user_id, 
-            f"{orig['name']} (копия)", 
+            user_id,
+            f"{orig['name']} (копия)",
             orig.get('text', ''),
-            orig.get('media_file_id'), 
-            orig.get('media_type'), 
+            orig.get('media_file_id'),
+            orig.get('media_type'),
             orig.get('folder_id')
         )
 
@@ -258,6 +273,10 @@ class DB:
 
     @classmethod
     def delete_template_folder(cls, folder_id: int) -> bool:
+        folder = cls._select('template_folders', filters={'id': folder_id}, single=True)
+        if not folder:
+            logger.warning(f"delete_template_folder: folder {folder_id} not found")
+            return False
         # Move templates to root first
         cls._update('message_templates', {'folder_id': None}, {'folder_id': folder_id})
         return cls._delete('template_folders', {'id': folder_id})
@@ -275,8 +294,8 @@ class DB:
     @classmethod
     def create_account_folder(cls, user_id: int, name: str) -> Optional[Dict]:
         return cls._insert('account_folders', {
-            'owner_id': user_id, 
-            'name': name, 
+            'owner_id': user_id,
+            'name': name,
             'created_at': datetime.utcnow().isoformat()
         })
 
@@ -286,6 +305,10 @@ class DB:
 
     @classmethod
     def delete_account_folder(cls, folder_id: int) -> bool:
+        folder = cls._select('account_folders', filters={'id': folder_id}, single=True)
+        if not folder:
+            logger.warning(f"delete_account_folder: folder {folder_id} not found")
+            return False
         # Move accounts to root first
         cls.move_accounts_from_folder(folder_id)
         return cls._delete('account_folders', {'id': folder_id})
@@ -356,9 +379,9 @@ class DB:
     @classmethod
     def get_any_active_account(cls, user_id: int) -> Optional[Dict]:
         """Get any active account for user (for parsing, etc.)"""
-        accounts = cls._select('telegram_accounts', 
-                              filters={'owner_id': user_id, 'status': 'active'}, 
-                              order='daily_sent.asc', 
+        accounts = cls._select('telegram_accounts',
+                              filters={'owner_id': user_id, 'status': 'active'},
+                              order='daily_sent.asc',
                               limit=1)
         return accounts[0] if accounts else None
 
@@ -381,6 +404,10 @@ class DB:
 
     @classmethod
     def delete_account(cls, account_id: int) -> bool:
+        account = cls._select('telegram_accounts', filters={'id': account_id}, single=True)
+        if not account:
+            logger.warning(f"delete_account: account {account_id} not found")
+            return False
         return cls._delete('telegram_accounts', {'id': account_id})
 
     # ==================== AUTH TASKS ====================
@@ -388,8 +415,8 @@ class DB:
     @classmethod
     def create_auth_task(cls, user_id: int, phone: str, folder_id: int = None) -> Optional[Dict]:
         data = {
-            'owner_id': user_id, 
-            'phone': phone, 
+            'owner_id': user_id,
+            'phone': phone,
             'status': 'pending',
             'created_at': datetime.utcnow().isoformat(),
             'expires_at': (datetime.utcnow() + timedelta(minutes=10)).isoformat()
@@ -439,6 +466,10 @@ class DB:
 
     @classmethod
     def delete_audience_source(cls, source_id: int) -> bool:
+        source = cls._select('audience_sources', filters={'id': source_id}, single=True)
+        if not source:
+            logger.warning(f"delete_audience_source: source {source_id} not found")
+            return False
         # Delete related parsed users first
         cls._delete('parsed_audiences', {'source_id': source_id})
         return cls._delete('audience_sources', {'id': source_id})
@@ -471,6 +502,10 @@ class DB:
 
     @classmethod
     def delete_audience_tag(cls, tag_id: int) -> bool:
+        tag = cls._select('audience_tags', filters={'id': tag_id}, single=True)
+        if not tag:
+            logger.warning(f"delete_audience_tag: tag {tag_id} not found")
+            return False
         return cls._delete('audience_tags', {'id': tag_id})
 
     @classmethod
@@ -502,7 +537,7 @@ class DB:
         """Search users in audience by username or name"""
         try:
             params = {
-                'select': '*', 
+                'select': '*',
                 'source_id': f'eq.{source_id}',
                 'or': f'(username.ilike.%{query}%,first_name.ilike.%{query}%,last_name.ilike.%{query}%)',
                 'limit': str(limit)
@@ -525,7 +560,7 @@ class DB:
             }
             if only_unsent:
                 params['sent'] = 'eq.false'
-            
+
             response = requests.get(cls._core_url('parsed_audiences'), headers=cls._headers(), params=params, timeout=10)
             return response.json() if response.ok else []
         except Exception as e:
@@ -582,25 +617,29 @@ class DB:
 
     @classmethod
     def remove_from_blacklist(cls, blacklist_id: int) -> bool:
+        bl = cls._select('blacklist', filters={'id': blacklist_id}, single=True)
+        if not bl:
+            logger.warning(f"remove_from_blacklist: blacklist entry {blacklist_id} not found")
+            return False
         return cls._delete('blacklist', {'id': blacklist_id})
 
     # ==================== CAMPAIGNS ====================
 
     @classmethod
-    def create_campaign(cls, user_id: int, source_id: int, template_id: int, 
+    def create_campaign(cls, user_id: int, source_id: int, template_id: int,
                        account_ids: List[int] = None, account_folder_id: int = None,
                        settings: Dict = None) -> Optional[Dict]:
         stats = cls.get_audience_stats(source_id)
         return cls._insert('campaigns', {
-            'owner_id': user_id, 
-            'source_id': source_id, 
+            'owner_id': user_id,
+            'source_id': source_id,
             'template_id': template_id,
             'account_ids': account_ids or [],
             'account_folder_id': account_folder_id,
             'current_account_id': account_ids[0] if account_ids else None,
             'next_account_index': 0,
-            'status': 'pending', 
-            'sent_count': 0, 
+            'status': 'pending',
+            'sent_count': 0,
             'failed_count': 0,
             'total_count': stats['remaining'],
             'settings': settings or {},
@@ -657,7 +696,7 @@ class DB:
         campaign = cls.get_campaign(campaign_id)
         if not campaign:
             return False
-        
+
         return cls.update_campaign(
             campaign_id,
             sent_count=(campaign.get('sent_count', 0) or 0) + sent,
@@ -679,11 +718,11 @@ class DB:
     def create_scheduled_mailing(cls, user_id: int, source_id: int, template_id: int,
                                  account_folder_id: int = None, scheduled_at: datetime = None) -> Optional[Dict]:
         return cls._insert('scheduled_mailings', {
-            'owner_id': user_id, 
-            'source_id': source_id, 
+            'owner_id': user_id,
+            'source_id': source_id,
             'template_id': template_id,
             'account_folder_id': account_folder_id,
-            'scheduled_at': scheduled_at.isoformat() if scheduled_at else None, 
+            'scheduled_at': scheduled_at.isoformat() if scheduled_at else None,
             'status': 'pending',
             'created_at': datetime.utcnow().isoformat()
         })
@@ -717,12 +756,16 @@ class DB:
 
     @classmethod
     def delete_scheduled_mailing(cls, mailing_id: int) -> bool:
+        mailing = cls._select('scheduled_mailings', filters={'id': mailing_id}, single=True)
+        if not mailing:
+            logger.warning(f"delete_scheduled_mailing: mailing {mailing_id} not found")
+            return False
         return cls._delete('scheduled_mailings', {'id': mailing_id})
 
     # ==================== SENT MESSAGES (for deduplication) ====================
 
     @classmethod
-    def record_sent_message(cls, campaign_id: int, user_tg_id: int, 
+    def record_sent_message(cls, campaign_id: int, user_tg_id: int,
                            account_id: int, status: str = 'sent', error: str = None) -> bool:
         """Record sent message for deduplication"""
         try:
@@ -735,7 +778,7 @@ class DB:
             }
             if error:
                 data['error_message'] = error[:200]
-            
+
             # Use upsert to handle duplicates
             headers = cls._headers()
             headers['Prefer'] = 'resolution=merge-duplicates,return=representation'
@@ -779,7 +822,7 @@ class DB:
             data['account_id'] = account_id
         if context:
             data['context'] = context
-        
+
         return cls._insert('error_logs', data) is not None
 
     @classmethod
@@ -788,7 +831,7 @@ class DB:
         try:
             start_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
             params = {
-                'select': 'error_type', 
+                'select': 'error_type',
                 'owner_id': f'eq.{user_id}',
                 'created_at': f'gte.{start_date}'
             }
@@ -864,4 +907,3 @@ class DB:
             flood_wait_until=None,
             error_message=None
         )
-
