@@ -1,10 +1,13 @@
 """
 Template management handlers
-Static menu version
+Static menu version with Storage support
 """
 import logging
 from core.db import DB
-from core.telegram import send_message, send_media, answer_callback
+from core.telegram import (
+    send_message, send_media, send_media_by_url, 
+    answer_callback, download_telegram_file
+)
 from core.keyboards import (
     kb_main_menu, kb_cancel, kb_back, kb_back_cancel, kb_confirm_delete,
     kb_templates_menu, kb_template_actions, kb_folder_actions,
@@ -127,7 +130,7 @@ def handle_templates(chat_id: int, user_id: int, text: str, state: str, saved: d
         )
         return True
     
-    # Create template - text
+    # Create template - text (only plain text, media handled separately)
     if state == 'templates:create_text':
         template_text = text.strip()
         if len(template_text) > 4000:
@@ -192,6 +195,11 @@ def handle_templates(chat_id: int, user_id: int, text: str, state: str, saved: d
         template_id = int(state.split(':')[2])
         
         if text == BTN_CONFIRM_DELETE:
+            # Get template to delete media from Storage
+            template = DB.get_template(template_id)
+            if template and template.get('media_url'):
+                DB.delete_template_media(template['media_url'])
+            
             DB.delete_template(template_id)
             send_message(chat_id, "✅ Шаблон удалён", kb_templates_menu())
             show_template_list(chat_id, user_id)
@@ -302,16 +310,23 @@ def handle_templates_callback(chat_id: int, msg_id: int, user_id: int, data: str
 
 
 def handle_template_media(chat_id: int, user_id: int, message: dict, state: str, saved: dict) -> bool:
-    """Handle media messages for template creation"""
+    """Handle media messages for template creation with Storage upload"""
     if state != 'templates:create_text':
         return False
     
-    media_types = {'photo': 'photo', 'video': 'video', 'document': 'document', 'audio': 'audio', 'voice': 'voice'}
+    media_types = {
+        'photo': 'photo', 
+        'video': 'video', 
+        'document': 'document', 
+        'audio': 'audio', 
+        'voice': 'voice'
+    }
     
     for media_key, media_type in media_types.items():
         if media_key in message:
+            # Get file_id
             if media_key == 'photo':
-                file_id = message['photo'][-1]['file_id']
+                file_id = message['photo'][-1]['file_id']  # Largest photo
             else:
                 file_id = message[media_key]['file_id']
             
@@ -319,16 +334,44 @@ def handle_template_media(chat_id: int, user_id: int, message: dict, state: str,
             folder_id = saved.get('folder_id')
             caption = message.get('caption', '')
             
-            template = DB.create_template(
-                user_id, template_name, caption,
-                media_file_id=file_id, media_type=media_type, folder_id=folder_id
-            )
+            # Send processing message
+            send_message(chat_id, "⏳ Загружаю медиа...", kb_cancel())
+            
+            # Try to download file from Telegram
+            file_content, file_extension = download_telegram_file(file_id)
+            
+            if file_content:
+                # Upload to Storage and create template
+                template = DB.create_template_with_media(
+                    user_id=user_id,
+                    name=template_name,
+                    text=caption,
+                    file_content=file_content,
+                    file_extension=file_extension,
+                    media_type=media_type,
+                    media_file_id=file_id,  # Keep as fallback
+                    folder_id=folder_id
+                )
+            else:
+                # Fallback: save only file_id (won't work with Telethon)
+                logger.warning(f"Failed to download file, saving file_id only")
+                template = DB.create_template(
+                    user_id, template_name, caption,
+                    media_file_id=file_id, media_type=media_type, folder_id=folder_id
+                )
+            
             DB.clear_user_state(user_id)
             
             if template:
+                storage_info = ""
+                if template.get('media_url'):
+                    storage_info = "\n☁️ Медиа сохранено в облако"
+                
                 send_message(chat_id,
                     f"✅ <b>Медиа-шаблон создан!</b>\n"
-                    f"📝 Название: {template_name}",
+                    f"📝 Название: {template_name}\n"
+                    f"📎 Тип: {media_type}"
+                    f"{storage_info}",
                     kb_templates_menu()
                 )
             else:
@@ -390,10 +433,15 @@ def show_template_view(chat_id: int, user_id: int, template_id: int):
     
     DB.set_user_state(user_id, f'templates:view:{template_id}')
     
-    if template.get('media_file_id'):
+    # Check if has media
+    has_media = template.get('media_file_id') or template.get('media_url')
+    
+    if has_media:
+        storage_info = "☁️ В облаке" if template.get('media_url') else "📱 Telegram"
         send_message(chat_id,
             f"🖼 <b>Медиа-шаблон: {template['name']}</b>\n\n"
             f"📎 Тип: {template.get('media_type', 'unknown')}\n"
+            f"💾 Хранение: {storage_info}\n"
             f"🆔 ID: <code>{template['id']}</code>",
             kb_template_actions()
         )
@@ -418,14 +466,24 @@ def show_template_preview(chat_id: int, user_id: int, template_id: int):
         send_message(chat_id, "❌ Шаблон не найден", kb_template_actions())
         return
     
+    # Replace variables with examples
     preview = template.get('text', '')
     preview = preview.replace('{name}', 'Иван')
     preview = preview.replace('{first_name}', 'Иван')
     preview = preview.replace('{last_name}', 'Иванов')
     preview = preview.replace('{username}', '@ivan_user')
     
-    if template.get('media_file_id'):
-        send_media(chat_id, template['media_type'], template['media_file_id'], preview)
+    # Send media if present
+    has_media = template.get('media_file_id') or template.get('media_url')
+    
+    if has_media:
+        media_type = template.get('media_type', 'photo')
+        
+        # Prefer Storage URL, fallback to file_id
+        if template.get('media_url'):
+            send_media_by_url(chat_id, media_type, template['media_url'], preview)
+        elif template.get('media_file_id'):
+            send_media(chat_id, media_type, template['media_file_id'], preview)
     
     send_message(chat_id,
         f"👁 <b>Предпросмотр</b>\n"
