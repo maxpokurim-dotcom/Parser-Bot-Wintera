@@ -30,7 +30,7 @@ class DB:
     def _headers(cls) -> dict:
         _, key = cls._get_config()
         return {
-            'corekey': key,
+            'apikey': key,
             'Authorization': f'Bearer {key}',
             'Content-Type': 'application/json',
             'Prefer': 'return=representation'
@@ -864,3 +864,4 @@ class DB:
             flood_wait_until=None,
             error_message=None
         )
+
