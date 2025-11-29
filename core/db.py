@@ -225,6 +225,9 @@ class DB:
         if not template:
             logger.warning(f"delete_template: template {template_id} not found")
             return False
+        # Удаляем ВСЕ зависимости
+        cls._delete('campaigns', {'template_id': template_id})
+        cls._delete('scheduled_mailings', {'template_id': template_id})
         return cls._delete('message_templates', {'id': template_id})
 
     @classmethod
@@ -399,7 +402,7 @@ class DB:
             return False
         user_id = account.get('owner_id')
         phone = account.get('phone')
-        # Удаляем зависимости
+        # Удаляем ВСЕ зависимости
         cls._delete('campaigns', {'account_id': account_id})
         cls._delete('campaigns', {'current_account_id': account_id})
         cls._delete('sent_messages', {'account_id': account_id})
@@ -462,28 +465,23 @@ class DB:
         return cls._update('audience_sources', kwargs, {'id': source_id})
 
     @classmethod
-def delete_audience_source(cls, source_id: int) -> bool:
-    source = cls._select('audience_sources', filters={'id': source_id}, single=True)
-    if not source:
-        logger.warning(f"delete_audience_source: source {source_id} not found")
-        return False
-
-    logger.info(f"Deleting all dependent records for audience source {source_id}...")
-
-    # Удаляем ВСЕ возможные зависимости
-    cls._delete('campaigns', {'source_id': source_id})
-    cls._delete('scheduled_mailings', {'source_id': source_id})
-    cls._delete('ab_tests', {'source_id': source_id})          # на всякий случай
-    cls._delete('import_history', {'source_id': source_id})    # на всякий случай
-    cls._delete('parsed_audiences', {'source_id': source_id})
-
-    # Теперь удаляем сам источник
-    success = cls._delete('audience_sources', {'id': source_id})
-    if success:
-        logger.info(f"Audience source {source_id} deleted successfully")
-    else:
-        logger.error(f"Failed to delete audience source {source_id}")
-    return success
+    def delete_audience_source(cls, source_id: int) -> bool:
+        source = cls._select('audience_sources', filters={'id': source_id}, single=True)
+        if not source:
+            logger.warning(f"delete_audience_source: source {source_id} not found")
+            return False
+        logger.info(f"Deleting all dependent records for audience source {source_id}...")
+        cls._delete('campaigns', {'source_id': source_id})
+        cls._delete('scheduled_mailings', {'source_id': source_id})
+        cls._delete('ab_tests', {'source_id': source_id})
+        cls._delete('import_history', {'source_id': source_id})
+        cls._delete('parsed_audiences', {'source_id': source_id})
+        success = cls._delete('audience_sources', {'id': source_id})
+        if success:
+            logger.info(f"Audience source {source_id} deleted successfully")
+        else:
+            logger.error(f"Failed to delete audience source {source_id}")
+        return success
 
     @classmethod
     def get_audience_stats(cls, source_id: int) -> Dict:
@@ -893,4 +891,3 @@ def delete_audience_source(cls, source_id: int) -> bool:
             flood_wait_until=None,
             error_message=None
         )
-
