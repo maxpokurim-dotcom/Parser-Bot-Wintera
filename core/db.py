@@ -30,7 +30,7 @@ class DB:
     def _headers(cls) -> dict:
         _, key = cls._get_config()
         return {
-            'apikey': key,  # ✅ only this is needed for Service Role Key
+            'apikey': key,
             'Content-Type': 'application/json',
             'Prefer': 'return=representation'
         }
@@ -98,17 +98,11 @@ class DB:
 
     @classmethod
     def _delete(cls, table: str, filters: dict) -> bool:
-        """
-        Удаляет запись из таблицы.
-        Возвращает True только если запись существовала И была удалена.
-        """
         try:
-            # Сначала проверяем, существует ли запись
             exists = cls._select(table, filters=filters, single=True)
             if not exists:
                 logger.warning(f"DELETE {table}: record not found with filters {filters}")
                 return False
-
             params = {k: f'eq.{v}' for k, v in filters.items()}
             logger.info(f"DELETE {table} with filters: {filters}")
             response = requests.delete(cls._core_url(table), headers=cls._headers(), params=params, timeout=10)
@@ -277,7 +271,6 @@ class DB:
         if not folder:
             logger.warning(f"delete_template_folder: folder {folder_id} not found")
             return False
-        # Move templates to root first
         cls._update('message_templates', {'folder_id': None}, {'folder_id': folder_id})
         return cls._delete('template_folders', {'id': folder_id})
 
@@ -309,13 +302,11 @@ class DB:
         if not folder:
             logger.warning(f"delete_account_folder: folder {folder_id} not found")
             return False
-        # Move accounts to root first
         cls.move_accounts_from_folder(folder_id)
         return cls._delete('account_folders', {'id': folder_id})
 
     @classmethod
     def move_accounts_from_folder(cls, folder_id: int) -> bool:
-        """Move all accounts from folder to root (no folder)"""
         try:
             params = {'folder_id': f'eq.{folder_id}'}
             data = {'folder_id': None, 'updated_at': datetime.utcnow().isoformat()}
@@ -351,7 +342,6 @@ class DB:
 
     @classmethod
     def get_accounts_without_folder(cls, user_id: int) -> List[Dict]:
-        """Get accounts without folder (folder_id is NULL)"""
         try:
             params = {
                 'select': '*',
@@ -378,7 +368,6 @@ class DB:
 
     @classmethod
     def get_any_active_account(cls, user_id: int) -> Optional[Dict]:
-        """Get any active account for user (for parsing, etc.)"""
         accounts = cls._select('telegram_accounts',
                               filters={'owner_id': user_id, 'status': 'active'},
                               order='daily_sent.asc',
@@ -408,6 +397,14 @@ class DB:
         if not account:
             logger.warning(f"delete_account: account {account_id} not found")
             return False
+        user_id = account.get('owner_id')
+        phone = account.get('phone')
+        # Удаляем зависимости
+        cls._delete('campaigns', {'account_id': account_id})
+        cls._delete('campaigns', {'current_account_id': account_id})
+        cls._delete('sent_messages', {'account_id': account_id})
+        if user_id and phone:
+            cls._delete('auth_tasks', {'owner_id': user_id, 'phone': phone})
         return cls._delete('telegram_accounts', {'id': account_id})
 
     # ==================== AUTH TASKS ====================
@@ -470,7 +467,6 @@ class DB:
         if not source:
             logger.warning(f"delete_audience_source: source {source_id} not found")
             return False
-        # Delete related parsed users first
         cls._delete('parsed_audiences', {'source_id': source_id})
         return cls._delete('audience_sources', {'id': source_id})
 
@@ -534,7 +530,6 @@ class DB:
 
     @classmethod
     def search_in_audience(cls, source_id: int, query: str, limit: int = 20) -> List[Dict]:
-        """Search users in audience by username or name"""
         try:
             params = {
                 'select': '*',
@@ -550,7 +545,6 @@ class DB:
 
     @classmethod
     def get_audience_with_filters(cls, source_id: int, limit: int = 1000, only_unsent: bool = False) -> List[Dict]:
-        """Get audience users with optional filters"""
         try:
             params = {
                 'select': '*',
@@ -569,12 +563,10 @@ class DB:
 
     @classmethod
     def get_unsent_users(cls, source_id: int, limit: int = 50) -> List[Dict]:
-        """Get unsent users from audience"""
         return cls.get_audience_with_filters(source_id, limit=limit, only_unsent=True)
 
     @classmethod
     def mark_user_sent(cls, user_id: int, success: bool = True, error: str = None) -> bool:
-        """Mark user as sent"""
         data = {
             'sent': True,
             'sent_at': datetime.utcnow().isoformat(),
@@ -588,17 +580,14 @@ class DB:
 
     @classmethod
     def get_blacklist(cls, user_id: int) -> List[Dict]:
-        """Get blacklist as list of dicts"""
         return cls._select('blacklist', filters={'owner_id': user_id}, order='created_at.desc')
 
     @classmethod
     def get_blacklist_items(cls, user_id: int) -> List[Dict]:
-        """Alias for get_blacklist - returns list of dicts"""
         return cls.get_blacklist(user_id)
 
     @classmethod
     def get_blacklist_set(cls, user_id: int) -> Set:
-        """Get blacklist as set of user_ids and usernames"""
         items = cls.get_blacklist(user_id)
         result = set()
         for item in items:
@@ -656,7 +645,6 @@ class DB:
 
     @classmethod
     def get_active_campaigns(cls, user_id: int) -> List[Dict]:
-        """Get active campaigns (pending, running, paused)"""
         try:
             params = {
                 'select': '*',
@@ -672,17 +660,14 @@ class DB:
 
     @classmethod
     def get_pending_campaigns(cls, limit: int = 5) -> List[Dict]:
-        """Get pending campaigns for processing"""
         return cls._select('campaigns', filters={'status': 'pending'}, order='created_at.asc', limit=limit)
 
     @classmethod
     def get_running_campaigns(cls) -> List[Dict]:
-        """Get running campaigns"""
         return cls._select('campaigns', filters={'status': 'running'})
 
     @classmethod
     def get_paused_campaigns(cls) -> List[Dict]:
-        """Get paused campaigns"""
         return cls._select('campaigns', filters={'status': 'paused'})
 
     @classmethod
@@ -692,11 +677,9 @@ class DB:
 
     @classmethod
     def increment_campaign_stats(cls, campaign_id: int, sent: int = 0, failed: int = 0) -> bool:
-        """Increment campaign sent/failed counters"""
         campaign = cls.get_campaign(campaign_id)
         if not campaign:
             return False
-
         return cls.update_campaign(
             campaign_id,
             sent_count=(campaign.get('sent_count', 0) or 0) + sent,
@@ -705,7 +688,6 @@ class DB:
 
     @classmethod
     def switch_campaign_account(cls, campaign_id: int, new_account_id: int, next_index: int = 0) -> bool:
-        """Switch campaign to a different account"""
         return cls.update_campaign(
             campaign_id,
             current_account_id=new_account_id,
@@ -733,7 +715,6 @@ class DB:
 
     @classmethod
     def get_due_scheduled_mailings(cls) -> List[Dict]:
-        """Get scheduled mailings that are due for execution"""
         try:
             now = datetime.utcnow().isoformat()
             params = {
@@ -767,7 +748,6 @@ class DB:
     @classmethod
     def record_sent_message(cls, campaign_id: int, user_tg_id: int,
                            account_id: int, status: str = 'sent', error: str = None) -> bool:
-        """Record sent message for deduplication"""
         try:
             data = {
                 'campaign_id': campaign_id,
@@ -778,8 +758,6 @@ class DB:
             }
             if error:
                 data['error_message'] = error[:200]
-
-            # Use upsert to handle duplicates
             headers = cls._headers()
             headers['Prefer'] = 'resolution=merge-duplicates,return=representation'
             response = requests.post(cls._core_url('sent_messages'), headers=headers, json=data, timeout=10)
@@ -790,7 +768,6 @@ class DB:
 
     @classmethod
     def get_sent_user_ids_for_campaign(cls, campaign_id: int) -> Set[int]:
-        """Get user IDs already sent in this campaign"""
         try:
             params = {
                 'select': 'user_tg_id',
@@ -809,7 +786,6 @@ class DB:
     @classmethod
     def log_error(cls, user_id: int, error_type: str, error_message: str,
                  campaign_id: int = None, account_id: int = None, context: Dict = None) -> bool:
-        """Log error for tracking"""
         data = {
             'owner_id': user_id,
             'error_type': error_type,
@@ -822,12 +798,10 @@ class DB:
             data['account_id'] = account_id
         if context:
             data['context'] = context
-
         return cls._insert('error_logs', data) is not None
 
     @classmethod
     def get_error_stats(cls, user_id: int, days: int = 7) -> Dict:
-        """Get error statistics for user"""
         try:
             start_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
             params = {
@@ -873,7 +847,6 @@ class DB:
 
     @classmethod
     def set_account_flood_wait(cls, account_id: int, wait_seconds: int) -> bool:
-        """Set account to flood_wait status with resume time"""
         flood_until = (datetime.utcnow() + timedelta(seconds=wait_seconds)).isoformat()
         return cls.update_account(
             account_id,
@@ -884,7 +857,6 @@ class DB:
 
     @classmethod
     def get_accounts_ready_after_flood(cls) -> List[Dict]:
-        """Get accounts whose flood_wait has expired"""
         try:
             now = datetime.utcnow().isoformat()
             params = {
@@ -900,7 +872,6 @@ class DB:
 
     @classmethod
     def reactivate_account(cls, account_id: int) -> bool:
-        """Reactivate account after flood_wait"""
         return cls.update_account(
             account_id,
             status='active',
