@@ -1,334 +1,479 @@
-# api/keyboards.py
 """
-All keyboard builders
+Keyboard builders - Reply keyboards (static menu) + Inline for lists
 """
+from typing import List, Dict, Optional
 from api.db import DB
 
-# ==================== BASIC KEYBOARDS ====================
-def kb_main():
-    return {'inline_keyboard': [
-        [{'text': '🔍 Парсинг чатов', 'callback_data': 'menu:parsing_chats'},
-         {'text': '💬 Комментарии', 'callback_data': 'menu:parsing_comments'}],
-        [{'text': '📊 Аудитории', 'callback_data': 'menu:audiences'},
-         {'text': '📄 Шаблоны', 'callback_data': 'menu:templates'}],
-        [{'text': '👤 Аккаунты', 'callback_data': 'menu:accounts'},
-         {'text': '📤 Рассылка', 'callback_data': 'menu:mailing'}],
-        [{'text': '📈 Статистика', 'callback_data': 'menu:stats'},
-         {'text': '⚙️ Настройки', 'callback_data': 'menu:settings'}]
-    ]}
+
+# ==================== REPLY KEYBOARDS (STATIC MENU) ====================
+
+def reply_keyboard(buttons: List[List[str]], resize: bool = True, one_time: bool = False) -> dict:
+    """Create reply keyboard"""
+    return {
+        'keyboard': buttons,
+        'resize_keyboard': resize,
+        'one_time_keyboard': one_time
+    }
+
+def remove_keyboard() -> dict:
+    """Remove reply keyboard"""
+    return {'remove_keyboard': True}
+
+
+# ==================== MAIN MENU ====================
+
+def kb_main_menu():
+    """Main menu keyboard"""
+    return reply_keyboard([
+        ['🔍 Парсинг чатов', '💬 Комментарии'],
+        ['📊 Аудитории', '📄 Шаблоны'],
+        ['👤 Аккаунты', '📤 Рассылка'],
+        ['📈 Статистика', '⚙️ Настройки']
+    ])
 
 def kb_cancel():
-    return {'inline_keyboard': [[{'text': '❌ Отмена', 'callback_data': 'action:cancel'}]]}
+    """Cancel button"""
+    return reply_keyboard([['❌ Отмена']])
 
-def kb_back(cb: str):
-    return {'inline_keyboard': [[{'text': '◀️ Назад', 'callback_data': cb}]]}
+def kb_back():
+    """Back button"""
+    return reply_keyboard([['◀️ Назад']])
 
-def kb_yes_no(prefix: str):
-    return {'inline_keyboard': [
-        [{'text': '✅ Да', 'callback_data': f'{prefix}:yes'}, {'text': '❌ Нет', 'callback_data': f'{prefix}:no'}],
-        [{'text': '◀️ Отмена', 'callback_data': 'action:cancel'}]
-    ]}
+def kb_back_cancel():
+    """Back and cancel buttons"""
+    return reply_keyboard([['◀️ Назад', '❌ Отмена']])
 
-def kb_confirm(prefix: str):
-    return {'inline_keyboard': [
-        [{'text': '✅ Подтвердить', 'callback_data': f'{prefix}:confirm'},
-         {'text': '❌ Отмена', 'callback_data': f'{prefix}:cancel'}]
-    ]}
+def kb_yes_no():
+    """Yes/No buttons"""
+    return reply_keyboard([
+        ['✅ Да', '❌ Нет'],
+        ['◀️ Назад']
+    ])
 
-def kb_delete_confirm(prefix: str, item_id: int):
-    return {'inline_keyboard': [
-        [{'text': '🗑 Да, удалить', 'callback_data': f'{prefix}:confirm_delete:{item_id}'},
-         {'text': '❌ Отмена', 'callback_data': f'{prefix}:cancel_delete'}]
-    ]}
+def kb_confirm_delete():
+    """Confirm delete buttons"""
+    return reply_keyboard([
+        ['🗑 Да, удалить', '❌ Отмена'],
+        ['◀️ Назад']
+    ])
 
-def kb_msg_limit():
-    return {'inline_keyboard': [
-        [{'text': '100', 'callback_data': 'parse_msg_limit:100'},
-         {'text': '500', 'callback_data': 'parse_msg_limit:500'},
-         {'text': '1000', 'callback_data': 'parse_msg_limit:1000'}],
-        [{'text': '2000', 'callback_data': 'parse_msg_limit:2000'},
-         {'text': '5000', 'callback_data': 'parse_msg_limit:5000'}],
-        [{'text': '❌ Отмена', 'callback_data': 'action:cancel'}]
-    ]}
 
-# ==================== STATS KEYBOARDS ====================
-def kb_stats():
-    return {'inline_keyboard': [
-        [{'text': '📉 Ошибки за 7 дней', 'callback_data': 'stats:errors'}],
-        [{'text': '🏆 Топ аудиторий', 'callback_data': 'stats:top_audiences'}],
-        [{'text': '📊 Активные рассылки', 'callback_data': 'stats:active_mailings'}],
-        [{'text': '◀️ Главное меню', 'callback_data': 'menu:main'}]
-    ]}
+# ==================== PARSING KEYBOARDS ====================
+
+def kb_parse_msg_limit():
+    """Message limit selection for parsing"""
+    return reply_keyboard([
+        ['100', '500', '1000'],
+        ['2000', '5000', '📝 Свой лимит'],
+        ['❌ Отмена']
+    ])
+
+def kb_parse_filter_yn():
+    """Yes/No filter for parsing"""
+    return reply_keyboard([
+        ['✅ Да', '❌ Нет'],
+        ['◀️ Назад', '❌ Отмена']
+    ])
+
+def kb_parse_confirm():
+    """Confirm parsing"""
+    return reply_keyboard([
+        ['🚀 Запустить парсинг'],
+        ['◀️ Назад', '❌ Отмена']
+    ])
+
+def kb_comments_range():
+    """Post range selection"""
+    return reply_keyboard([
+        ['1-10', '1-20', '1-50'],
+        ['📝 Свой диапазон'],
+        ['❌ Отмена']
+    ])
+
+def kb_min_length():
+    """Minimum comment length"""
+    return reply_keyboard([
+        ['0 (все)', '10', '50'],
+        ['100', '📝 Свой'],
+        ['◀️ Назад', '❌ Отмена']
+    ])
+
 
 # ==================== AUDIENCE KEYBOARDS ====================
-def kb_audiences_empty():
-    return {'inline_keyboard': [
-        [{'text': '🔍 Парсинг чатов', 'callback_data': 'menu:parsing_chats'}],
-        [{'text': '💬 Парсинг комментариев', 'callback_data': 'menu:parsing_comments'}],
-        [{'text': '◀️ Главное меню', 'callback_data': 'menu:main'}]
-    ]}
 
-def kb_audiences_list(sources: list):
-    buttons = []
-    for s in sources[:10]:
-        emoji = '💬' if s.get('source_type') == 'comments' else '👥'
-        st = {'pending': '⏳', 'running': '🔄', 'completed': '✅', 'failed': '❌'}.get(s.get('status'), '❓')
-        link = s['source_link'][:15] + '..' if len(s['source_link']) > 15 else s['source_link']
-        buttons.append([{'text': f"{emoji}{st} {link} ({s.get('parsed_count', 0)})", 'callback_data': f"audience:view:{s['id']}"}])
-    buttons.append([{'text': '🏷 Теги', 'callback_data': 'menu:tags'}, {'text': '🚫 Blacklist', 'callback_data': 'menu:blacklist'}])
-    buttons.append([{'text': '◀️ Главное меню', 'callback_data': 'menu:main'}])
-    return {'inline_keyboard': buttons}
+def kb_audiences_menu():
+    """Audiences menu"""
+    return reply_keyboard([
+        ['📋 Список аудиторий'],
+        ['🏷 Теги', '🚫 Чёрный список'],
+        ['◀️ Главное меню']
+    ])
 
-def kb_audience_actions(source_id: int, status: str):
-    buttons = []
-    if status == 'completed':
-        buttons.append([{'text': '🔍 Поиск', 'callback_data': f'audience:search:{source_id}'},
-                        {'text': '📤 Экспорт', 'callback_data': f'audience:export:{source_id}'}])
-    buttons.append([{'text': '🏷 Теги', 'callback_data': f'audience:tags:{source_id}'}])
-    buttons.append([{'text': '🗑 Удалить', 'callback_data': f'audience:delete:{source_id}'}])
-    buttons.append([{'text': '◀️ К списку', 'callback_data': 'menu:audiences'}])
-    return {'inline_keyboard': buttons}
+def kb_audience_actions():
+    """Actions for selected audience"""
+    return reply_keyboard([
+        ['🔍 Поиск', '📤 Экспорт'],
+        ['🏷 Теги', '🗑 Удалить'],
+        ['◀️ К списку', '◀️ Главное меню']
+    ])
 
-def kb_tags_menu(tags: list):
-    buttons = [[{'text': f"🏷 {t['name']}", 'callback_data': 'noop'}, {'text': '🗑', 'callback_data': f"tag:delete:{t['id']}"}] for t in tags[:10]]
-    buttons.append([{'text': '➕ Создать тег', 'callback_data': 'tag:create'}])
-    buttons.append([{'text': '◀️ Назад', 'callback_data': 'menu:audiences'}])
-    return {'inline_keyboard': buttons}
+def kb_audience_tags():
+    """Tags management"""
+    return reply_keyboard([
+        ['➕ Создать тег'],
+        ['◀️ Назад']
+    ])
 
-def kb_tags_select(source_id: int, tags: list, current: list):
-    buttons = [[{'text': f"{'✅' if t['name'] in current else '⬜️'} {t['name']}", 'callback_data': f"audience:toggle_tag:{source_id}:{t['name']}"}] for t in tags[:10]]
-    buttons.append([{'text': '◀️ Назад', 'callback_data': f'audience:view:{source_id}'}])
-    return {'inline_keyboard': buttons}
+def kb_blacklist_menu():
+    """Blacklist menu"""
+    return reply_keyboard([
+        ['➕ Добавить', '📋 Список'],
+        ['◀️ Назад']
+    ])
 
-def kb_blacklist(bl: list):
-    buttons = []
-    for b in bl[:8]:
-        d = f"@{b['username']}" if b.get('username') else str(b.get('tg_user_id', '?'))[:10]
-        buttons.append([{'text': f"🚫 {d}", 'callback_data': 'noop'}, {'text': '✖️', 'callback_data': f"blacklist:remove:{b['id']}"}])
-    buttons.append([{'text': '➕ Добавить', 'callback_data': 'blacklist:add'}])
-    buttons.append([{'text': '◀️ Назад', 'callback_data': 'menu:audiences'}])
-    return {'inline_keyboard': buttons}
 
 # ==================== TEMPLATE KEYBOARDS ====================
-def kb_template_folders_for_selection(user_id: int, mode: str, extra_data: dict = None):
-    folders = DB.get_template_folders(user_id)
-    buttons = []
 
-    if mode == 'template_create':
-        buttons.append([{'text': '📁 Без папки', 'callback_data': 'template_create:folder:0'}])
-        for f in folders:
-            buttons.append([{'text': f"📁 {f['name']}", 'callback_data': f"template_create:folder:{f['id']}"}])
-        buttons.append([{'text': '❌ Отмена', 'callback_data': 'action:cancel'}])
-    elif mode == 'template_move':
-        template_id = extra_data.get('template_id') if extra_data else 0
-        buttons.append([{'text': '📁 Без папки', 'callback_data': f'template_move:folder:{template_id}:0'}])
-        for f in folders:
-            buttons.append([{'text': f"📁 {f['name']}", 'callback_data': f"template_move:folder:{template_id}:{f['id']}"}])
-        buttons.append([{'text': '◀️ Назад', 'callback_data': f'template:view:{template_id}'}])
+def kb_templates_menu():
+    """Templates menu"""
+    return reply_keyboard([
+        ['📋 Список шаблонов', '📁 Папки'],
+        ['➕ Создать шаблон', '📁 Создать папку'],
+        ['◀️ Главное меню']
+    ])
 
-    return {'inline_keyboard': buttons}
+def kb_template_actions():
+    """Actions for selected template"""
+    return reply_keyboard([
+        ['👁 Предпросмотр', '📋 Копировать'],
+        ['📁 Переместить', '🗑 Удалить'],
+        ['◀️ К списку', '◀️ Главное меню']
+    ])
 
-def kb_templates(templates: list, folders: list = None):
-    buttons = []
-    for f in (folders or [])[:5]:
-        buttons.append([{'text': f"📁 {f['name']}", 'callback_data': f"folder:view:{f['id']}"}])
-    for t in templates[:8]:
-        if not t.get('folder_id'):
-            e = '🖼' if t.get('media_file_id') else '📝'
-            n = t['name'][:20] + '..' if len(t['name']) > 20 else t['name']
-            buttons.append([{'text': f"{e} {n}", 'callback_data': f"template:view:{t['id']}"}])
-    buttons.append([{'text': '➕ Шаблон', 'callback_data': 'template:create'}, {'text': '📁 Папка', 'callback_data': 'folder:create'}])
-    buttons.append([{'text': '◀️ Главное меню', 'callback_data': 'menu:main'}])
-    return {'inline_keyboard': buttons}
+def kb_folder_actions():
+    """Actions for template folder"""
+    return reply_keyboard([
+        ['📋 Шаблоны в папке', '➕ Создать шаблон'],
+        ['✏️ Переименовать', '🗑 Удалить папку'],
+        ['◀️ К списку']
+    ])
 
-def kb_folder_templates(templates: list, folder_id: int):
-    buttons = [[{'text': f"{'🖼' if t.get('media_file_id') else '📝'} {t['name'][:20]}", 'callback_data': f"template:view:{t['id']}"}] for t in templates[:10]]
-    buttons.append([{'text': '➕ Шаблон', 'callback_data': f'folder:create_template:{folder_id}'}])
-    buttons.append([{'text': '🗑 Удалить папку', 'callback_data': f'folder:delete:{folder_id}'}])
-    buttons.append([{'text': '◀️ К списку', 'callback_data': 'template:list'}])
-    return {'inline_keyboard': buttons}
-
-def kb_template_actions(template_id: int):
-    return {'inline_keyboard': [
-        [{'text': '👁 Предпросмотр', 'callback_data': f'template:preview:{template_id}'}],
-        [{'text': '📁 Переместить', 'callback_data': f'template:move:{template_id}'},
-         {'text': '📋 Копировать', 'callback_data': f'template:copy:{template_id}'},
-         {'text': '🗑 Удалить', 'callback_data': f'template:delete:{template_id}'}],
-        [{'text': '◀️ К списку', 'callback_data': 'template:list'}]
-    ]}
 
 # ==================== ACCOUNT KEYBOARDS ====================
-def kb_accounts_main(folders: list, accounts_without_folder: list):
-    buttons = []
 
-    for f in folders[:8]:
-        acc_count = DB.count_accounts_in_folder(f['id'])
-        buttons.append([{'text': f"📁 {f['name']} ({acc_count})", 'callback_data': f"acc_folder:view:{f['id']}"}])
+def kb_accounts_menu():
+    """Accounts menu"""
+    return reply_keyboard([
+        ['📋 Список аккаунтов', '📁 Папки'],
+        ['➕ Добавить аккаунт', '📁 Создать папку'],
+        ['◀️ Главное меню']
+    ])
 
-    for a in accounts_without_folder[:5]:
-        st = {'active': '✅', 'pending': '⏳', 'blocked': '🚫', 'flood_wait': '⏰', 'error': '❌'}.get(a.get('status'), '❓')
-        p = a['phone']
-        m = f"{p[:4]}**{p[-2:]}" if len(p) > 6 else p
-        d = f"{a.get('daily_sent', 0) or 0}/{a.get('daily_limit', 50) or 50}"
-        buttons.append([{'text': f"{st} {m} [{d}]", 'callback_data': f"account:view:{a['id']}"}])
+def kb_account_actions():
+    """Actions for selected account"""
+    return reply_keyboard([
+        ['📊 Установить лимит', '📁 Переместить'],
+        ['🗑 Удалить'],
+        ['◀️ К списку', '◀️ Главное меню']
+    ])
 
-    buttons.append([{'text': '➕ Аккаунт', 'callback_data': 'account:add'}, 
-                    {'text': '📁 Папка', 'callback_data': 'acc_folder:create'}])
-    buttons.append([{'text': '◀️ Главное меню', 'callback_data': 'menu:main'}])
-    return {'inline_keyboard': buttons}
+def kb_account_limits():
+    """Daily limit selection"""
+    return reply_keyboard([
+        ['25', '50', '75'],
+        ['100', '150', '200'],
+        ['📝 Свой лимит'],
+        ['◀️ Назад']
+    ])
 
-def kb_account_folder_view(accounts: list, folder_id: int):
-    buttons = []
-    for a in accounts[:10]:
-        st = {'active': '✅', 'pending': '⏳', 'blocked': '🚫', 'flood_wait': '⏰', 'error': '❌'}.get(a.get('status'), '❓')
-        p = a['phone']
-        m = f"{p[:4]}**{p[-2:]}" if len(p) > 6 else p
-        d = f"{a.get('daily_sent', 0) or 0}/{a.get('daily_limit', 50) or 50}"
-        buttons.append([{'text': f"{st} {m} [{d}]", 'callback_data': f"account:view:{a['id']}"}])
+def kb_acc_folder_actions():
+    """Actions for account folder"""
+    return reply_keyboard([
+        ['📋 Аккаунты в папке', '➕ Добавить аккаунт'],
+        ['✏️ Переименовать', '🗑 Удалить папку'],
+        ['◀️ К списку']
+    ])
 
-    buttons.append([{'text': '➕ Добавить аккаунт', 'callback_data': f'account:add_to_folder:{folder_id}'}])
-    buttons.append([{'text': '✏️ Переименовать', 'callback_data': f'acc_folder:rename:{folder_id}'},
-                    {'text': '🗑 Удалить папку', 'callback_data': f'acc_folder:delete:{folder_id}'}])
-    buttons.append([{'text': '◀️ К списку', 'callback_data': 'account:list'}])
-    return {'inline_keyboard': buttons}
-
-def kb_account_actions(account_id: int):
-    return {'inline_keyboard': [
-        [{'text': '📊 Установить лимит', 'callback_data': f'account:set_limit:{account_id}'}],
-        [{'text': '📁 Переместить', 'callback_data': f'account:move:{account_id}'}],
-        [{'text': '🗑 Удалить', 'callback_data': f'account:delete:{account_id}'}],
-        [{'text': '◀️ К списку', 'callback_data': 'account:list'}]
-    ]}
-
-def kb_account_folder_select(user_id: int, account_id: int):
-    folders = DB.get_account_folders(user_id)
-    buttons = []
-
-    buttons.append([{'text': '📁 Без папки', 'callback_data': f'account:set_folder:{account_id}:0'}])
-    for f in folders:
-        buttons.append([{'text': f"📁 {f['name']}", 'callback_data': f"account:set_folder:{account_id}:{f['id']}"}])
-
-    buttons.append([{'text': '◀️ Назад', 'callback_data': f'account:view:{account_id}'}])
-    return {'inline_keyboard': buttons}
-
-def kb_account_limit(account_id: int):
-    return {'inline_keyboard': [
-        [{'text': '25', 'callback_data': f'account:limit:{account_id}:25'},
-         {'text': '50', 'callback_data': f'account:limit:{account_id}:50'},
-         {'text': '75', 'callback_data': f'account:limit:{account_id}:75'}],
-        [{'text': '100', 'callback_data': f'account:limit:{account_id}:100'},
-         {'text': '150', 'callback_data': f'account:limit:{account_id}:150'},
-         {'text': '200', 'callback_data': f'account:limit:{account_id}:200'}],
-        [{'text': '◀️ Назад', 'callback_data': f'account:view:{account_id}'}]
-    ]}
 
 # ==================== MAILING KEYBOARDS ====================
-def kb_mailing():
-    return {'inline_keyboard': [
-        [{'text': '🚀 Новая рассылка', 'callback_data': 'mailing:new'}],
-        [{'text': '📊 Активные рассылки', 'callback_data': 'mailing:active_list'}],
-        [{'text': '📅 Отложенные', 'callback_data': 'mailing:scheduled_list'}],
-        [{'text': '◀️ Главное меню', 'callback_data': 'menu:main'}]
-    ]}
 
-def kb_mailing_sources(sources: list):
-    buttons = [[{'text': f"{'💬' if s.get('source_type') == 'comments' else '👥'} {s['source_link'][:18]} ({s.get('parsed_count', 0)})",
-                 'callback_data': f"mailing:source:{s['id']}"}] for s in sources[:10]]
-    buttons.append([{'text': '❌ Отмена', 'callback_data': 'mailing:cancel'}])
-    return {'inline_keyboard': buttons}
+def kb_mailing_menu():
+    """Mailing menu"""
+    return reply_keyboard([
+        ['🚀 Новая рассылка'],
+        ['📊 Активные', '📅 Отложенные'],
+        ['◀️ Главное меню']
+    ])
 
-def kb_mailing_templates(templates: list):
-    buttons = [[{'text': f"{'🖼' if t.get('media_file_id') else '📝'} {t['name'][:22]}",
-                 'callback_data': f"mailing:template:{t['id']}"}] for t in templates[:10]]
-    buttons.append([{'text': '❌ Отмена', 'callback_data': 'mailing:cancel'}])
-    return {'inline_keyboard': buttons}
+def kb_mailing_confirm():
+    """Confirm mailing"""
+    return reply_keyboard([
+        ['🚀 Запустить сейчас', '📅 Отложить'],
+        ['⚙️ Настройки рассылки'],
+        ['❌ Отмена']
+    ])
 
-def kb_mailing_account_folders(folders: list, accounts_without_folder: list):
+def kb_campaign_actions(status: str):
+    """Campaign actions based on status"""
     buttons = []
-
-    for f in folders[:8]:
-        active_count = DB.count_active_accounts_in_folder(f['id'])
-        if active_count > 0:
-            buttons.append([{'text': f"📁 {f['name']} ({active_count} активных)", 
-                           'callback_data': f"mailing:acc_folder:{f['id']}"}])
-
-    active_without = [a for a in accounts_without_folder if a.get('status') == 'active']
-    if active_without:
-        buttons.append([{'text': f"📁 Без папки ({len(active_without)} активных)", 
-                        'callback_data': 'mailing:acc_folder:0'}])
-
-    buttons.append([{'text': '❌ Отмена', 'callback_data': 'mailing:cancel'}])
-    return {'inline_keyboard': buttons}
-
-def kb_mailing_confirm_multi():
-    return {'inline_keyboard': [
-        [{'text': '🚀 Запустить', 'callback_data': 'mailing:start_now'}],
-        [{'text': '📅 Отложить', 'callback_data': 'mailing:schedule'}],
-        [{'text': '⚙️ Настройки рассылки', 'callback_data': 'mailing:settings'}],
-        [{'text': '❌ Отмена', 'callback_data': 'mailing:cancel'}]
-    ]}
-
-def kb_mailing_settings():
-    return {'inline_keyboard': [
-        [{'text': '⏱ Задержка: случайная', 'callback_data': 'mailing:delay_type'}],
-        [{'text': '🔄 Авто-переключение аккаунтов: ВКЛ', 'callback_data': 'mailing:auto_switch'}],
-        [{'text': '◀️ Назад', 'callback_data': 'mailing:back_to_confirm'}]
-    ]}
-
-def kb_scheduled_list(mailings: list):
-    buttons = [[{'text': f"📅 ID:{m['id']}", 'callback_data': 'noop'},
-                {'text': '🗑', 'callback_data': f"scheduled:delete:{m['id']}"}]
-               for m in mailings[:10] if m['status'] == 'pending']
-    buttons.append([{'text': '◀️ Назад', 'callback_data': 'menu:mailing'}])
-    return {'inline_keyboard': buttons}
-
-def kb_active_mailings(campaigns: list):
-    buttons = []
-    for c in campaigns[:10]:
-        if c['status'] in ['pending', 'running', 'paused']:
-            status_emoji = {'pending': '⏳', 'running': '🔄', 'paused': '⏸'}.get(c['status'], '❓')
-            buttons.append([
-                {'text': f"{status_emoji} ID:{c['id']} ({c.get('sent_count', 0)}/{c.get('total_count', '?')})",
-                 'callback_data': f"campaign:view:{c['id']}"}
-            ])
-
-    if not buttons:
-        buttons.append([{'text': 'Нет активных рассылок', 'callback_data': 'noop'}])
-
-    buttons.append([{'text': '◀️ Назад', 'callback_data': 'menu:mailing'}])
-    return {'inline_keyboard': buttons}
-
-def kb_campaign_actions(campaign_id: int, status: str):
-    buttons = []
-
     if status == 'running':
-        buttons.append([{'text': '⏸ Приостановить', 'callback_data': f'campaign:pause:{campaign_id}'}])
+        buttons.append(['⏸ Приостановить'])
     elif status == 'paused':
-        buttons.append([{'text': '▶️ Возобновить', 'callback_data': f'campaign:resume:{campaign_id}'}])
+        buttons.append(['▶️ Возобновить'])
+    if status in ['running', 'paused']:
+        buttons.append(['🛑 Остановить'])
+    buttons.append(['🔄 Обновить'])
+    buttons.append(['◀️ К списку', '◀️ Главное меню'])
+    return reply_keyboard(buttons)
 
-    if status in ['running', 'paused', 'pending']:
-        buttons.append([{'text': '🛑 Остановить', 'callback_data': f'campaign:stop:{campaign_id}'}])
 
-    buttons.append([{'text': '🔄 Обновить', 'callback_data': f'campaign:view:{campaign_id}'}])
-    buttons.append([{'text': '◀️ К списку', 'callback_data': 'mailing:active_list'}])
-    return {'inline_keyboard': buttons}
+# ==================== STATS KEYBOARDS ====================
+
+def kb_stats_menu():
+    """Statistics menu"""
+    return reply_keyboard([
+        ['📉 Ошибки за 7 дней', '🏆 Топ аудиторий'],
+        ['📊 Активные рассылки'],
+        ['◀️ Главное меню']
+    ])
+
 
 # ==================== SETTINGS KEYBOARDS ====================
-def kb_settings():
-    return {'inline_keyboard': [
-        [{'text': '🌙 Тихие часы', 'callback_data': 'settings:quiet_hours'}],
-        [{'text': '🔕 Отключить тихие часы', 'callback_data': 'settings:quiet_hours_off'}],
-        [{'text': '⏱ Задержка рассылки', 'callback_data': 'settings:mailing_delay'}],
-        [{'text': '🔔 Уведомления ВКЛ', 'callback_data': 'settings:notify:on'},
-         {'text': '🔕 ВЫКЛ', 'callback_data': 'settings:notify:off'}],
-        [{'text': '◀️ Главное меню', 'callback_data': 'menu:main'}]
-    ]}
+
+def kb_settings_menu():
+    """Settings menu"""
+    return reply_keyboard([
+        ['🌙 Тихие часы', '🔔 Уведомления'],
+        ['⏱ Задержка рассылки'],
+        ['◀️ Главное меню']
+    ])
+
+def kb_quiet_hours():
+    """Quiet hours settings"""
+    return reply_keyboard([
+        ['⏰ Установить', '🔕 Отключить'],
+        ['◀️ Назад']
+    ])
+
+def kb_notifications():
+    """Notifications settings"""
+    return reply_keyboard([
+        ['🔔 Включить', '🔕 Отключить'],
+        ['◀️ Назад']
+    ])
 
 def kb_delay_settings():
-    return {'inline_keyboard': [
-        [{'text': '5-15 сек (быстро)', 'callback_data': 'settings:delay:5:15'}],
-        [{'text': '15-45 сек (средне)', 'callback_data': 'settings:delay:15:45'}],
-        [{'text': '30-90 сек (медленно)', 'callback_data': 'settings:delay:30:90'}],
-        [{'text': '60-180 сек (безопасно)', 'callback_data': 'settings:delay:60:180'}],
-        [{'text': '◀️ Назад', 'callback_data': 'menu:settings'}]
-    ]}
+    """Delay settings"""
+    return reply_keyboard([
+        ['5-15 сек', '15-45 сек'],
+        ['30-90 сек', '60-180 сек'],
+        ['📝 Свой диапазон'],
+        ['◀️ Назад']
+    ])
+
+
+# ==================== INLINE KEYBOARDS (for lists only) ====================
+
+def inline_keyboard(buttons: List[List[dict]]) -> dict:
+    """Create inline keyboard"""
+    return {'inline_keyboard': buttons}
+
+def kb_inline_audiences(sources: List[dict]) -> dict:
+    """Inline keyboard for audience selection"""
+    buttons = []
+    for s in sources[:15]:
+        emoji = '💬' if s.get('source_type') == 'comments' else '👥'
+        status = {'pending': '⏳', 'running': '🔄', 'completed': '✅', 'failed': '❌'}.get(s.get('status'), '❓')
+        link = s['source_link'][:20] + '..' if len(s['source_link']) > 20 else s['source_link']
+        count = s.get('parsed_count', 0)
+        buttons.append([{
+            'text': f"{emoji}{status} {link} ({count})",
+            'callback_data': f"aud:{s['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_templates(templates: List[dict], folders: List[dict] = None) -> dict:
+    """Inline keyboard for template selection"""
+    buttons = []
+    # Folders first
+    for f in (folders or [])[:5]:
+        buttons.append([{
+            'text': f"📁 {f['name']}",
+            'callback_data': f"tfld:{f['id']}"
+        }])
+    # Templates without folder
+    for t in templates[:10]:
+        if not t.get('folder_id'):
+            emoji = '🖼' if t.get('media_file_id') else '📝'
+            name = t['name'][:25] + '..' if len(t['name']) > 25 else t['name']
+            buttons.append([{
+                'text': f"{emoji} {name}",
+                'callback_data': f"tpl:{t['id']}"
+            }])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_folder_templates(templates: List[dict], folder_id: int) -> dict:
+    """Inline keyboard for templates in folder"""
+    buttons = []
+    for t in templates[:15]:
+        emoji = '🖼' if t.get('media_file_id') else '📝'
+        name = t['name'][:25] + '..' if len(t['name']) > 25 else t['name']
+        buttons.append([{
+            'text': f"{emoji} {name}",
+            'callback_data': f"tpl:{t['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_template_folders(folders: List[dict], mode: str = 'move', template_id: int = 0) -> dict:
+    """Inline keyboard for folder selection"""
+    buttons = []
+    buttons.append([{'text': '📁 Без папки', 'callback_data': f"mvtpl:{template_id}:0" if mode == 'move' else 'selfld:0'}])
+    for f in folders[:10]:
+        cb = f"mvtpl:{template_id}:{f['id']}" if mode == 'move' else f"selfld:{f['id']}"
+        buttons.append([{'text': f"📁 {f['name']}", 'callback_data': cb}])
+    return inline_keyboard(buttons)
+
+def kb_inline_accounts(folders: List[dict], accounts: List[dict]) -> dict:
+    """Inline keyboard for account selection"""
+    buttons = []
+    # Folders
+    for f in folders[:8]:
+        count = DB.count_accounts_in_folder(f['id'])
+        buttons.append([{
+            'text': f"📁 {f['name']} ({count})",
+            'callback_data': f"afld:{f['id']}"
+        }])
+    # Accounts without folder
+    for a in accounts[:5]:
+        status = {'active': '✅', 'pending': '⏳', 'blocked': '🚫', 'flood_wait': '⏰', 'error': '❌'}.get(a.get('status'), '❓')
+        phone = a['phone']
+        masked = f"{phone[:4]}**{phone[-2:]}" if len(phone) > 6 else phone
+        daily = f"{a.get('daily_sent', 0) or 0}/{a.get('daily_limit', 50) or 50}"
+        buttons.append([{
+            'text': f"{status} {masked} [{daily}]",
+            'callback_data': f"acc:{a['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_acc_folders(folders: List[dict], accounts: List[dict]) -> dict:
+    """Inline keyboard for accounts in folder"""
+    buttons = []
+    for a in accounts[:15]:
+        status = {'active': '✅', 'pending': '⏳', 'blocked': '🚫', 'flood_wait': '⏰', 'error': '❌'}.get(a.get('status'), '❓')
+        phone = a['phone']
+        masked = f"{phone[:4]}**{phone[-2:]}" if len(phone) > 6 else phone
+        daily = f"{a.get('daily_sent', 0) or 0}/{a.get('daily_limit', 50) or 50}"
+        buttons.append([{
+            'text': f"{status} {masked} [{daily}]",
+            'callback_data': f"acc:{a['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_account_folders(folders: List[dict], account_id: int) -> dict:
+    """Inline keyboard for moving account to folder"""
+    buttons = []
+    buttons.append([{'text': '📁 Без папки', 'callback_data': f"mvacc:{account_id}:0"}])
+    for f in folders[:10]:
+        buttons.append([{'text': f"📁 {f['name']}", 'callback_data': f"mvacc:{account_id}:{f['id']}"}])
+    return inline_keyboard(buttons)
+
+def kb_inline_mailing_sources(sources: List[dict]) -> dict:
+    """Inline keyboard for mailing source selection"""
+    buttons = []
+    for s in sources[:15]:
+        emoji = '💬' if s.get('source_type') == 'comments' else '👥'
+        link = s['source_link'][:20] + '..' if len(s['source_link']) > 20 else s['source_link']
+        count = s.get('parsed_count', 0)
+        remaining = DB.get_audience_stats(s['id']).get('remaining', 0)
+        buttons.append([{
+            'text': f"{emoji} {link} ({remaining} осталось)",
+            'callback_data': f"msrc:{s['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_mailing_templates(templates: List[dict]) -> dict:
+    """Inline keyboard for mailing template selection"""
+    buttons = []
+    for t in templates[:15]:
+        emoji = '🖼' if t.get('media_file_id') else '📝'
+        name = t['name'][:25] + '..' if len(t['name']) > 25 else t['name']
+        buttons.append([{
+            'text': f"{emoji} {name}",
+            'callback_data': f"mtpl:{t['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_mailing_acc_folders(folders: List[dict], accounts: List[dict]) -> dict:
+    """Inline keyboard for mailing account folder selection"""
+    buttons = []
+    for f in folders[:8]:
+        active = DB.count_active_accounts_in_folder(f['id'])
+        if active > 0:
+            buttons.append([{
+                'text': f"📁 {f['name']} ({active} активных)",
+                'callback_data': f"macc:{f['id']}"
+            }])
+    # Accounts without folder
+    active_without = [a for a in accounts if a.get('status') == 'active']
+    if active_without:
+        buttons.append([{
+            'text': f"📁 Без папки ({len(active_without)} активных)",
+            'callback_data': "macc:0"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_campaigns(campaigns: List[dict]) -> dict:
+    """Inline keyboard for campaign selection"""
+    buttons = []
+    for c in campaigns[:10]:
+        status_emoji = {'pending': '⏳', 'running': '🔄', 'paused': '⏸', 'completed': '✅'}.get(c['status'], '❓')
+        sent = c.get('sent_count', 0)
+        total = c.get('total_count', '?')
+        buttons.append([{
+            'text': f"{status_emoji} #{c['id']} ({sent}/{total})",
+            'callback_data': f"cmp:{c['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_scheduled(mailings: List[dict]) -> dict:
+    """Inline keyboard for scheduled mailings"""
+    buttons = []
+    for m in mailings[:10]:
+        scheduled = m.get('scheduled_at', '')[:16].replace('T', ' ')
+        buttons.append([
+            {'text': f"📅 #{m['id']} - {scheduled}", 'callback_data': f"schd:{m['id']}"},
+            {'text': '🗑', 'callback_data': f"delschd:{m['id']}"}
+        ])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_tags(tags: List[dict]) -> dict:
+    """Inline keyboard for tags"""
+    buttons = []
+    for t in tags[:10]:
+        buttons.append([
+            {'text': f"🏷 {t['name']}", 'callback_data': 'noop'},
+            {'text': '🗑', 'callback_data': f"deltag:{t['id']}"}
+        ])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_audience_tags(tags: List[dict], source_id: int, current: List[str]) -> dict:
+    """Inline keyboard for audience tag selection"""
+    buttons = []
+    for t in tags[:10]:
+        check = '✅' if t['name'] in current else '⬜️'
+        buttons.append([{
+            'text': f"{check} {t['name']}",
+            'callback_data': f"togtag:{source_id}:{t['name']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_blacklist(items: List[dict]) -> dict:
+    """Inline keyboard for blacklist"""
+    buttons = []
+    for b in items[:10]:
+        display = f"@{b['username']}" if b.get('username') else str(b.get('tg_user_id', '?'))
+        buttons.append([
+            {'text': f"🚫 {display}", 'callback_data': 'noop'},
+            {'text': '✖️', 'callback_data': f"delbl:{b['id']}"}
+        ])
+    return inline_keyboard(buttons) if buttons else None
