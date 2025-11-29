@@ -1,25 +1,40 @@
-# api/webhook.py
 """
 Telegram Bot Webhook - Entry Point
-Routes all updates to appropriate handlers
+Static menu version with Reply Keyboards
 """
 import json
 import logging
 from http.server import BaseHTTPRequestHandler
 
 from api.db import DB
-from api.telegram import send_message, answer_callback, edit_message
-from api.keyboards import kb_main, kb_cancel
+from api.telegram import send_message, answer_callback
+from api.keyboards import kb_main_menu
 
 # Import handlers
-from api.parsing import handle_parsing_cb, handle_parsing_state
-from api.audiences import handle_audience_cb, handle_audience_state
-from api.templates import handle_template_cb, handle_template_state, handle_template_media
-from api.accounts import handle_account_cb, handle_account_state
-from api.mailing import handle_mailing_cb, handle_mailing_state
-from api.settings import handle_settings_cb, handle_settings_state
-from api.stats import handle_stats_cb
-from api.tags import handle_tags_cb, handle_blacklist_cb, handle_tags_state
+from api.menu import (
+    show_main_menu, handle_start, handle_cancel,
+    BTN_PARSING_CHATS, BTN_COMMENTS, BTN_AUDIENCES, BTN_TEMPLATES,
+    BTN_ACCOUNTS, BTN_MAILING, BTN_STATS, BTN_SETTINGS, BTN_CANCEL, BTN_BACK
+)
+from api.parsing import (
+    start_chat_parsing, start_comments_parsing,
+    handle_chat_parsing, handle_comments_parsing
+)
+from api.audiences import (
+    show_audiences_menu, handle_audiences, handle_audiences_callback
+)
+from api.templates import (
+    show_templates_menu, handle_templates, handle_templates_callback,
+    handle_template_media
+)
+from api.accounts import (
+    show_accounts_menu, handle_accounts, handle_accounts_callback
+)
+from api.mailing import (
+    show_mailing_menu, handle_mailing, handle_mailing_callback
+)
+from api.settings import show_settings_menu, handle_settings
+from api.stats import show_stats_menu, handle_stats
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,126 +42,170 @@ logger = logging.getLogger(__name__)
 
 # ==================== MESSAGE HANDLER ====================
 def handle_message(message: dict):
+    """Handle incoming message"""
     chat_id = message.get('chat', {}).get('id')
     user_id = message.get('from', {}).get('id')
+    
     if not chat_id or not user_id:
         return
-
+    
+    text = message.get('text', '')
+    
+    # Get user state
     state_data = DB.get_user_state(user_id)
     state = state_data.get('state', '') if state_data else ''
     saved = state_data.get('data', {}) if state_data else {}
-
-    text = message.get('text', '')
     
     # Commands
     if text == '/start':
-        DB.clear_user_state(user_id)
-        send_message(chat_id,
-            "👋 <b>Добро пожаловать!</b>\n"
-            "Я бот для парсинга аудитории и рассылки.\n"
-            "<b>Возможности:</b>\n"
-            "• 🔍 Парсинг из чатов\n"
-            "• 💬 Парсинг комментариев\n"
-            "• 📤 Массовая рассылка с несколькими аккаунтами\n"
-            "• 📁 Организация аккаунтов по папкам\n"
-            "Выберите действие 👇", kb_main())
+        handle_start(chat_id, user_id)
         return
-
+    
     if text == '/menu':
-        DB.clear_user_state(user_id)
-        send_message(chat_id, "📋 <b>Главное меню</b>", kb_main())
+        show_main_menu(chat_id, user_id)
         return
-
+    
     if text == '/cancel':
-        DB.clear_user_state(user_id)
-        send_message(chat_id, "❌ Действие отменено\n📋 <b>Главное меню</b>", kb_main())
+        handle_cancel(chat_id, user_id)
         return
-
+    
     if text == '/stats':
-        stats = DB.get_user_stats(user_id)
-        send_message(chat_id,
-            f"📈 <b>Статистика</b>\n"
-            f"📊 Аудитории: <b>{stats['audiences']}</b>\n"
-            f"📄 Шаблоны: <b>{stats['templates']}</b>\n"
-            f"👤 Аккаунты: <b>{stats['accounts']}</b>\n"
-            f"✅ Отправлено: <b>{stats['total_sent']}</b>", kb_main())
+        show_stats_menu(chat_id, user_id)
         return
-
-    # Handle media for template creation
-    if state == 'waiting_template_text':
-        if handle_template_media(chat_id, user_id, message, state, saved):
-            return
-
-    # Handle text states
-    if state:
-        # Try each state handler
-        if handle_parsing_state(chat_id, user_id, text, state, saved):
-            return
-        if handle_audience_state(chat_id, user_id, text, state, saved):
-            return
-        if handle_template_state(chat_id, user_id, text, state, saved, message):
-            return
-        if handle_account_state(chat_id, user_id, text, state, saved):
-            return
-        if handle_mailing_state(chat_id, user_id, text, state, saved):
-            return
-        if handle_settings_state(chat_id, user_id, text, state, saved):
-            return
-        if handle_tags_state(chat_id, user_id, text, state, saved):
+    
+    # Main menu buttons (when no specific state)
+    if not state or state.endswith(':menu') or state.endswith(':list'):
+        if text == BTN_PARSING_CHATS:
+            start_chat_parsing(chat_id, user_id)
             return
         
-        # Unknown state
-        DB.clear_user_state(user_id)
-        send_message(chat_id, "📋 <b>Главное меню</b>\nВыберите действие:", kb_main())
-    else:
-        send_message(chat_id, "📋 <b>Главное меню</b>\nВыберите действие:", kb_main())
+        if text == BTN_COMMENTS:
+            start_comments_parsing(chat_id, user_id)
+            return
+        
+        if text == BTN_AUDIENCES:
+            show_audiences_menu(chat_id, user_id)
+            return
+        
+        if text == BTN_TEMPLATES:
+            show_templates_menu(chat_id, user_id)
+            return
+        
+        if text == BTN_ACCOUNTS:
+            show_accounts_menu(chat_id, user_id)
+            return
+        
+        if text == BTN_MAILING:
+            show_mailing_menu(chat_id, user_id)
+            return
+        
+        if text == BTN_STATS:
+            show_stats_menu(chat_id, user_id)
+            return
+        
+        if text == BTN_SETTINGS:
+            show_settings_menu(chat_id, user_id)
+            return
+    
+    # Handle media for template creation
+    if state == 'templates:create_text':
+        if handle_template_media(chat_id, user_id, message, state, saved):
+            return
+    
+    # Route to appropriate handler based on state
+    if state:
+        # Parsing handlers
+        if state.startswith('parse_chat:'):
+            if handle_chat_parsing(chat_id, user_id, text, state, saved):
+                return
+        
+        if state.startswith('parse_comments:'):
+            if handle_comments_parsing(chat_id, user_id, text, state, saved):
+                return
+        
+        # Audiences handlers
+        if state.startswith('audiences:'):
+            if handle_audiences(chat_id, user_id, text, state, saved):
+                return
+        
+        # Templates handlers
+        if state.startswith('templates:'):
+            if handle_templates(chat_id, user_id, text, state, saved):
+                return
+        
+        # Accounts handlers
+        if state.startswith('accounts:'):
+            if handle_accounts(chat_id, user_id, text, state, saved):
+                return
+        
+        # Mailing handlers
+        if state.startswith('mailing:'):
+            if handle_mailing(chat_id, user_id, text, state, saved):
+                return
+        
+        # Settings handlers
+        if state.startswith('settings:'):
+            if handle_settings(chat_id, user_id, text, state, saved):
+                return
+        
+        # Stats handlers
+        if state.startswith('stats:'):
+            if handle_stats(chat_id, user_id, text, state, saved):
+                return
+    
+    # Global cancel/back
+    if text == BTN_CANCEL:
+        handle_cancel(chat_id, user_id)
+        return
+    
+    if text == BTN_BACK or text == '◀️ Главное меню':
+        show_main_menu(chat_id, user_id)
+        return
+    
+    # Unknown command - show main menu
+    show_main_menu(chat_id, user_id, "📋 <b>Главное меню</b>\nВыберите действие:")
 
 
 # ==================== CALLBACK HANDLER ====================
 def handle_callback(callback: dict):
+    """Handle callback query (inline buttons)"""
     cb_id = callback.get('id')
     data = callback.get('data', '')
     msg = callback.get('message', {})
     chat_id = msg.get('chat', {}).get('id')
     msg_id = msg.get('message_id')
     user_id = callback.get('from', {}).get('id')
-
+    
     if not chat_id:
         return
-
+    
     answer_callback(cb_id)
-
-    state_data = DB.get_user_state(user_id)
-    saved = state_data.get('data', {}) if state_data else {}
-
-    # Main menu / Cancel
-    if data in ['menu:main', 'nav:main', 'action:cancel']:
-        DB.clear_user_state(user_id)
-        edit_message(chat_id, msg_id, "📋 <b>Главное меню</b>\nВыберите действие:", kb_main())
-        return
-
+    
     if data == 'noop':
         return
-
-    # Route to appropriate handler
-    if data.startswith('menu:parsing') or data.startswith('parse_'):
-        handle_parsing_cb(chat_id, msg_id, user_id, data, saved)
-    elif data.startswith('menu:audiences') or data.startswith('audience:'):
-        handle_audience_cb(chat_id, msg_id, user_id, data, saved)
-    elif data.startswith('menu:templates') or data.startswith('template:') or data.startswith('folder:') or data.startswith('template_create:') or data.startswith('template_move:'):
-        handle_template_cb(chat_id, msg_id, user_id, data, saved)
-    elif data.startswith('menu:accounts') or data.startswith('account:') or data.startswith('acc_folder:'):
-        handle_account_cb(chat_id, msg_id, user_id, data, saved)
-    elif data.startswith('menu:mailing') or data.startswith('mailing:') or data.startswith('scheduled:') or data.startswith('campaign:'):
-        handle_mailing_cb(chat_id, msg_id, user_id, data, saved)
-    elif data.startswith('menu:settings') or data.startswith('settings:'):
-        handle_settings_cb(chat_id, msg_id, user_id, data)
-    elif data.startswith('menu:stats') or data.startswith('stats:'):
-        handle_stats_cb(chat_id, msg_id, user_id, data)
-    elif data.startswith('menu:tags') or data.startswith('tag:'):
-        handle_tags_cb(chat_id, msg_id, user_id, data)
-    elif data.startswith('menu:blacklist') or data.startswith('blacklist:'):
-        handle_blacklist_cb(chat_id, msg_id, user_id, data)
+    
+    # Route callbacks to handlers
+    
+    # Audience callbacks
+    if data.startswith('aud:') or data.startswith('deltag:') or data.startswith('togtag:') or data.startswith('delbl:'):
+        handle_audiences_callback(chat_id, msg_id, user_id, data)
+        return
+    
+    # Template callbacks
+    if data.startswith('tpl:') or data.startswith('tfld:') or data.startswith('mvtpl:') or data.startswith('selfld:'):
+        handle_templates_callback(chat_id, msg_id, user_id, data)
+        return
+    
+    # Account callbacks
+    if data.startswith('acc:') or data.startswith('afld:') or data.startswith('mvacc:'):
+        handle_accounts_callback(chat_id, msg_id, user_id, data)
+        return
+    
+    # Mailing callbacks
+    if data.startswith('msrc:') or data.startswith('mtpl:') or data.startswith('macc:') or \
+       data.startswith('cmp:') or data.startswith('schd:') or data.startswith('delschd:'):
+        handle_mailing_callback(chat_id, msg_id, user_id, data)
+        return
 
 
 # ==================== VERCEL HANDLER ====================
@@ -161,7 +220,7 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps({
             'status': 'ok',
             'message': 'Telegram Bot is running',
-            'version': '2.1.0'
+            'version': '3.0.0-static-menu'
         }).encode())
 
     def do_POST(self):
@@ -181,8 +240,6 @@ class handler(BaseHTTPRequestHandler):
                 handle_message(update['message'])
             elif 'callback_query' in update:
                 handle_callback(update['callback_query'])
-            elif 'edited_message' in update:
-                pass
             
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
