@@ -6,35 +6,36 @@ import json
 import logging
 from http.server import BaseHTTPRequestHandler
 
-from api.db import DB
-from api.telegram import send_message, answer_callback
-from api.keyboards import kb_main_menu
+# Импорты из папки core (не api!)
+from core.db import DB
+from core.telegram import send_message, answer_callback
+from core.keyboards import kb_main_menu
 
 # Import handlers
-from api.menu import (
+from core.menu import (
     show_main_menu, handle_start, handle_cancel,
     BTN_PARSING_CHATS, BTN_COMMENTS, BTN_AUDIENCES, BTN_TEMPLATES,
     BTN_ACCOUNTS, BTN_MAILING, BTN_STATS, BTN_SETTINGS, BTN_CANCEL, BTN_BACK
 )
-from api.parsing import (
+from core.parsing import (
     start_chat_parsing, start_comments_parsing,
     handle_chat_parsing, handle_comments_parsing
 )
-from api.audiences import (
+from core.audiences import (
     show_audiences_menu, handle_audiences, handle_audiences_callback
 )
-from api.templates import (
+from core.templates import (
     show_templates_menu, handle_templates, handle_templates_callback,
     handle_template_media
 )
-from api.accounts import (
+from core.accounts import (
     show_accounts_menu, handle_accounts, handle_accounts_callback
 )
-from api.mailing import (
+from core.mailing import (
     show_mailing_menu, handle_mailing, handle_mailing_callback
 )
-from api.settings import show_settings_menu, handle_settings
-from api.stats import show_stats_menu, handle_stats
+from core.settings import show_settings_menu, handle_settings
+from core.stats import show_stats_menu, handle_stats
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,34 +46,34 @@ def handle_message(message: dict):
     """Handle incoming message"""
     chat_id = message.get('chat', {}).get('id')
     user_id = message.get('from', {}).get('id')
-    
+
     if not chat_id or not user_id:
         return
-    
+
     text = message.get('text', '')
-    
+
     # Get user state
     state_data = DB.get_user_state(user_id)
     state = state_data.get('state', '') if state_data else ''
     saved = state_data.get('data', {}) if state_data else {}
-    
+
     # Commands
     if text == '/start':
         handle_start(chat_id, user_id)
         return
-    
+
     if text == '/menu':
         show_main_menu(chat_id, user_id)
         return
-    
+
     if text == '/cancel':
         handle_cancel(chat_id, user_id)
         return
-    
+
     if text == '/stats':
         show_stats_menu(chat_id, user_id)
         return
-    
+
     # Main menu buttons (when no specific state)
     if not state or state.endswith(':menu') or state.endswith(':list'):
         if text == BTN_PARSING_CHATS:
@@ -106,12 +107,12 @@ def handle_message(message: dict):
         if text == BTN_SETTINGS:
             show_settings_menu(chat_id, user_id)
             return
-    
+
     # Handle media for template creation
     if state == 'templates:create_text':
         if handle_template_media(chat_id, user_id, message, state, saved):
             return
-    
+
     # Route to appropriate handler based on state
     if state:
         # Parsing handlers
@@ -152,16 +153,16 @@ def handle_message(message: dict):
         if state.startswith('stats:'):
             if handle_stats(chat_id, user_id, text, state, saved):
                 return
-    
+
     # Global cancel/back
     if text == BTN_CANCEL:
         handle_cancel(chat_id, user_id)
         return
-    
+
     if text == BTN_BACK or text == '◀️ Главное меню':
         show_main_menu(chat_id, user_id)
         return
-    
+
     # Unknown command - show main menu
     show_main_menu(chat_id, user_id, "📋 <b>Главное меню</b>\nВыберите действие:")
 
@@ -175,32 +176,32 @@ def handle_callback(callback: dict):
     chat_id = msg.get('chat', {}).get('id')
     msg_id = msg.get('message_id')
     user_id = callback.get('from', {}).get('id')
-    
+
     if not chat_id:
         return
-    
+
     answer_callback(cb_id)
-    
+
     if data == 'noop':
         return
-    
+
     # Route callbacks to handlers
-    
+
     # Audience callbacks
     if data.startswith('aud:') or data.startswith('deltag:') or data.startswith('togtag:') or data.startswith('delbl:'):
         handle_audiences_callback(chat_id, msg_id, user_id, data)
         return
-    
+
     # Template callbacks
     if data.startswith('tpl:') or data.startswith('tfld:') or data.startswith('mvtpl:') or data.startswith('selfld:'):
         handle_templates_callback(chat_id, msg_id, user_id, data)
         return
-    
+
     # Account callbacks
     if data.startswith('acc:') or data.startswith('afld:') or data.startswith('mvacc:'):
         handle_accounts_callback(chat_id, msg_id, user_id, data)
         return
-    
+
     # Mailing callbacks
     if data.startswith('msrc:') or data.startswith('mtpl:') or data.startswith('macc:') or \
        data.startswith('cmp:') or data.startswith('schd:') or data.startswith('delschd:'):
