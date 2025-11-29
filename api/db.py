@@ -1,12 +1,13 @@
 """
 Supabase Database Client - Extended Version
 With Account Folders, Multi-Account Campaigns, Dynamic Reports
+Static Menu Support
 """
 
 import os
 import logging
 import requests
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,8 @@ class DB:
 
     @classmethod
     def _select(cls, table: str, columns: str = "*", filters: dict = None,
-                order: str = None, limit: int = None, single: bool = False) -> Any:
+                order: str = None, limit: int = None, single: bool = False,
+                raw_filters: dict = None) -> Any:
         try:
             params = {'select': columns}
             if filters:
@@ -53,6 +55,8 @@ class DB:
                         params[key] = 'is.null'
                     else:
                         params[key] = f'eq.{value}'
+            if raw_filters:
+                params.update(raw_filters)
             if order:
                 params['order'] = order
             if limit:
@@ -181,7 +185,7 @@ class DB:
 
     @classmethod
     def get_templates(cls, user_id: int, folder_id: int = None) -> List[Dict]:
-        if folder_id:
+        if folder_id is not None:
             return cls._select('message_templates', filters={'owner_id': user_id, 'folder_id': folder_id}, order='created_at.desc')
         return cls._select('message_templates', filters={'owner_id': user_id}, order='created_at.desc')
 
@@ -230,7 +234,7 @@ class DB:
 
     @classmethod
     def update_template_folder(cls, template_id: int, folder_id: int = None) -> bool:
-        return cls._update('message_templates', {'folder_id': folder_id}, {'id': template_id})
+        return cls._update('message_templates', {'folder_id': folder_id, 'updated_at': datetime.utcnow().isoformat()}, {'id': template_id})
 
     # ==================== TEMPLATE FOLDERS ====================
 
@@ -249,11 +253,16 @@ class DB:
         })
 
     @classmethod
+    def rename_template_folder(cls, folder_id: int, name: str) -> bool:
+        return cls._update('template_folders', {'name': name, 'updated_at': datetime.utcnow().isoformat()}, {'id': folder_id})
+
+    @classmethod
     def delete_template_folder(cls, folder_id: int) -> bool:
+        # Move templates to root first
         cls._update('message_templates', {'folder_id': None}, {'folder_id': folder_id})
         return cls._delete('template_folders', {'id': folder_id})
 
-    # ==================== ACCOUNT FOLDERS (UPDATED) ====================
+    # ==================== ACCOUNT FOLDERS ====================
 
     @classmethod
     def get_account_folders(cls, user_id: int) -> List[Dict]:
@@ -277,15 +286,15 @@ class DB:
 
     @classmethod
     def delete_account_folder(cls, folder_id: int) -> bool:
-        folder = cls.get_account_folder(folder_id)
-        if not folder:
-            return False
-        user_id = folder['owner_id']
+        # Move accounts to root first
+        cls.move_accounts_from_folder(folder_id)
+        return cls._delete('account_folders', {'id': folder_id})
+
+    @classmethod
+    def move_accounts_from_folder(cls, folder_id: int) -> bool:
+        """Move all accounts from folder to root (no folder)"""
         try:
-            params = {
-                'folder_id': f'eq.{folder_id}',
-                'owner_id': f'eq.{user_id}'
-            }
+            params = {'folder_id': f'eq.{folder_id}'}
             data = {'folder_id': None, 'updated_at': datetime.utcnow().isoformat()}
             response = requests.patch(
                 cls._api_url('telegram_accounts'),
@@ -294,11 +303,10 @@ class DB:
                 params=params,
                 timeout=10
             )
-            if not response.ok:
-                logger.warning(f"Failed to reset folder_id for accounts in folder {folder_id}")
+            return response.ok
         except Exception as e:
-            logger.error(f"Error moving accounts out of folder {folder_id}: {e}")
-        return cls._delete('account_folders', {'id': folder_id})
+            logger.error(f"move_accounts_from_folder error: {e}")
+            return False
 
     @classmethod
     def count_accounts_in_folder(cls, folder_id: int) -> int:
@@ -320,7 +328,19 @@ class DB:
 
     @classmethod
     def get_accounts_without_folder(cls, user_id: int) -> List[Dict]:
-        return cls._select('telegram_accounts', filters={'owner_id': user_id, 'folder_id': None}, order='created_at.desc')
+        """Get accounts without folder (folder_id is NULL)"""
+        try:
+            params = {
+                'select': '*',
+                'owner_id': f'eq.{user_id}',
+                'folder_id': 'is.null',
+                'order': 'created_at.desc'
+            }
+            response = requests.get(cls._api_url('telegram_accounts'), headers=cls._headers(), params=params, timeout=10)
+            return response.json() if response.ok else []
+        except Exception as e:
+            logger.error(f"get_accounts_without_folder error: {e}")
+            return []
 
     @classmethod
     def get_account(cls, account_id: int) -> Optional[Dict]:
@@ -332,6 +352,15 @@ class DB:
     @classmethod
     def get_active_accounts(cls, user_id: int) -> List[Dict]:
         return cls._select('telegram_accounts', filters={'owner_id': user_id, 'status': 'active'}, order='daily_sent.asc')
+
+    @classmethod
+    def get_any_active_account(cls, user_id: int) -> Optional[Dict]:
+        """Get any active account for user (for parsing, etc.)"""
+        accounts = cls._select('telegram_accounts', 
+                              filters={'owner_id': user_id, 'status': 'active'}, 
+                              order='daily_sent.asc', 
+                              limit=1)
+        return accounts[0] if accounts else None
 
     @classmethod
     def check_account_exists(cls, user_id: int, phone: str) -> bool:
@@ -374,6 +403,10 @@ class DB:
         kwargs['updated_at'] = datetime.utcnow().isoformat()
         return cls._update('auth_tasks', kwargs, {'id': task_id})
 
+    @classmethod
+    def get_auth_task(cls, task_id: int) -> Optional[Dict]:
+        return cls._select('auth_tasks', filters={'id': task_id}, single=True)
+
     # ==================== AUDIENCE SOURCES ====================
 
     @classmethod
@@ -406,6 +439,7 @@ class DB:
 
     @classmethod
     def delete_audience_source(cls, source_id: int) -> bool:
+        # Delete related parsed users first
         cls._delete('parsed_audiences', {'source_id': source_id})
         return cls._delete('audience_sources', {'id': source_id})
 
@@ -465,26 +499,79 @@ class DB:
 
     @classmethod
     def search_in_audience(cls, source_id: int, query: str, limit: int = 20) -> List[Dict]:
+        """Search users in audience by username or name"""
         try:
             params = {
-                'select': '*', 'source_id': f'eq.{source_id}',
-                'or': f'(username.ilike.%{query}%,first_name.ilike.%{query}%)',
+                'select': '*', 
+                'source_id': f'eq.{source_id}',
+                'or': f'(username.ilike.%{query}%,first_name.ilike.%{query}%,last_name.ilike.%{query}%)',
                 'limit': str(limit)
             }
             response = requests.get(cls._api_url('parsed_audiences'), headers=cls._headers(), params=params, timeout=10)
             return response.json() if response.ok else []
-        except Exception:
+        except Exception as e:
+            logger.error(f"search_in_audience error: {e}")
             return []
 
     @classmethod
-    def get_audience_with_filters(cls, source_id: int, limit: int = 100) -> List[Dict]:
-        return cls._select('parsed_audiences', filters={'source_id': source_id}, limit=limit)
+    def get_audience_with_filters(cls, source_id: int, limit: int = 1000, only_unsent: bool = False) -> List[Dict]:
+        """Get audience users with optional filters"""
+        try:
+            params = {
+                'select': '*',
+                'source_id': f'eq.{source_id}',
+                'order': 'created_at.asc',
+                'limit': str(limit)
+            }
+            if only_unsent:
+                params['sent'] = 'eq.false'
+            
+            response = requests.get(cls._api_url('parsed_audiences'), headers=cls._headers(), params=params, timeout=10)
+            return response.json() if response.ok else []
+        except Exception as e:
+            logger.error(f"get_audience_with_filters error: {e}")
+            return []
+
+    @classmethod
+    def get_unsent_users(cls, source_id: int, limit: int = 50) -> List[Dict]:
+        """Get unsent users from audience"""
+        return cls.get_audience_with_filters(source_id, limit=limit, only_unsent=True)
+
+    @classmethod
+    def mark_user_sent(cls, user_id: int, success: bool = True, error: str = None) -> bool:
+        """Mark user as sent"""
+        data = {
+            'sent': True,
+            'sent_at': datetime.utcnow().isoformat(),
+            'send_success': success
+        }
+        if error:
+            data['send_error'] = error[:200]
+        return cls._update('parsed_audiences', data, {'id': user_id})
 
     # ==================== BLACKLIST ====================
 
     @classmethod
     def get_blacklist(cls, user_id: int) -> List[Dict]:
+        """Get blacklist as list of dicts"""
         return cls._select('blacklist', filters={'owner_id': user_id}, order='created_at.desc')
+
+    @classmethod
+    def get_blacklist_items(cls, user_id: int) -> List[Dict]:
+        """Alias for get_blacklist - returns list of dicts"""
+        return cls.get_blacklist(user_id)
+
+    @classmethod
+    def get_blacklist_set(cls, user_id: int) -> Set:
+        """Get blacklist as set of user_ids and usernames"""
+        items = cls.get_blacklist(user_id)
+        result = set()
+        for item in items:
+            if item.get('tg_user_id'):
+                result.add(item['tg_user_id'])
+            if item.get('username'):
+                result.add(item['username'].lower())
+        return result
 
     @classmethod
     def add_to_blacklist(cls, user_id: int, tg_user_id: int = None, username: str = None) -> Optional[Dict]:
@@ -497,7 +584,7 @@ class DB:
     def remove_from_blacklist(cls, blacklist_id: int) -> bool:
         return cls._delete('blacklist', {'id': blacklist_id})
 
-    # ==================== CAMPAIGNS (UPDATED) ====================
+    # ==================== CAMPAIGNS ====================
 
     @classmethod
     def create_campaign(cls, user_id: int, source_id: int, template_id: int, 
@@ -511,6 +598,7 @@ class DB:
             'account_ids': account_ids or [],
             'account_folder_id': account_folder_id,
             'current_account_id': account_ids[0] if account_ids else None,
+            'next_account_index': 0,
             'status': 'pending', 
             'sent_count': 0, 
             'failed_count': 0,
@@ -529,6 +617,7 @@ class DB:
 
     @classmethod
     def get_active_campaigns(cls, user_id: int) -> List[Dict]:
+        """Get active campaigns (pending, running, paused)"""
         try:
             params = {
                 'select': '*',
@@ -543,11 +632,48 @@ class DB:
             return []
 
     @classmethod
+    def get_pending_campaigns(cls, limit: int = 5) -> List[Dict]:
+        """Get pending campaigns for processing"""
+        return cls._select('campaigns', filters={'status': 'pending'}, order='created_at.asc', limit=limit)
+
+    @classmethod
+    def get_running_campaigns(cls) -> List[Dict]:
+        """Get running campaigns"""
+        return cls._select('campaigns', filters={'status': 'running'})
+
+    @classmethod
+    def get_paused_campaigns(cls) -> List[Dict]:
+        """Get paused campaigns"""
+        return cls._select('campaigns', filters={'status': 'paused'})
+
+    @classmethod
     def update_campaign(cls, campaign_id: int, **kwargs) -> bool:
         kwargs['updated_at'] = datetime.utcnow().isoformat()
         return cls._update('campaigns', kwargs, {'id': campaign_id})
 
-    # ==================== SCHEDULED MAILINGS (UPDATED) ====================
+    @classmethod
+    def increment_campaign_stats(cls, campaign_id: int, sent: int = 0, failed: int = 0) -> bool:
+        """Increment campaign sent/failed counters"""
+        campaign = cls.get_campaign(campaign_id)
+        if not campaign:
+            return False
+        
+        return cls.update_campaign(
+            campaign_id,
+            sent_count=(campaign.get('sent_count', 0) or 0) + sent,
+            failed_count=(campaign.get('failed_count', 0) or 0) + failed
+        )
+
+    @classmethod
+    def switch_campaign_account(cls, campaign_id: int, new_account_id: int, next_index: int = 0) -> bool:
+        """Switch campaign to a different account"""
+        return cls.update_campaign(
+            campaign_id,
+            current_account_id=new_account_id,
+            next_account_index=next_index
+        )
+
+    # ==================== SCHEDULED MAILINGS ====================
 
     @classmethod
     def create_scheduled_mailing(cls, user_id: int, source_id: int, template_id: int,
@@ -567,8 +693,114 @@ class DB:
         return cls._select('scheduled_mailings', filters={'owner_id': user_id}, order='scheduled_at.asc')
 
     @classmethod
+    def get_due_scheduled_mailings(cls) -> List[Dict]:
+        """Get scheduled mailings that are due for execution"""
+        try:
+            now = datetime.utcnow().isoformat()
+            params = {
+                'select': '*',
+                'status': 'eq.pending',
+                'scheduled_at': f'lte.{now}',
+                'order': 'scheduled_at.asc',
+                'limit': '10'
+            }
+            response = requests.get(cls._api_url('scheduled_mailings'), headers=cls._headers(), params=params, timeout=10)
+            return response.json() if response.ok else []
+        except Exception as e:
+            logger.error(f"get_due_scheduled_mailings error: {e}")
+            return []
+
+    @classmethod
+    def update_scheduled_mailing(cls, mailing_id: int, **kwargs) -> bool:
+        kwargs['updated_at'] = datetime.utcnow().isoformat()
+        return cls._update('scheduled_mailings', kwargs, {'id': mailing_id})
+
+    @classmethod
     def delete_scheduled_mailing(cls, mailing_id: int) -> bool:
         return cls._delete('scheduled_mailings', {'id': mailing_id})
+
+    # ==================== SENT MESSAGES (for deduplication) ====================
+
+    @classmethod
+    def record_sent_message(cls, campaign_id: int, user_tg_id: int, 
+                           account_id: int, status: str = 'sent', error: str = None) -> bool:
+        """Record sent message for deduplication"""
+        try:
+            data = {
+                'campaign_id': campaign_id,
+                'user_tg_id': user_tg_id,
+                'account_id': account_id,
+                'status': status,
+                'sent_at': datetime.utcnow().isoformat()
+            }
+            if error:
+                data['error_message'] = error[:200]
+            
+            # Use upsert to handle duplicates
+            headers = cls._headers()
+            headers['Prefer'] = 'resolution=merge-duplicates,return=representation'
+            response = requests.post(cls._api_url('sent_messages'), headers=headers, json=data, timeout=10)
+            return response.ok
+        except Exception as e:
+            logger.error(f"record_sent_message error: {e}")
+            return False
+
+    @classmethod
+    def get_sent_user_ids_for_campaign(cls, campaign_id: int) -> Set[int]:
+        """Get user IDs already sent in this campaign"""
+        try:
+            params = {
+                'select': 'user_tg_id',
+                'campaign_id': f'eq.{campaign_id}'
+            }
+            response = requests.get(cls._api_url('sent_messages'), headers=cls._headers(), params=params, timeout=10)
+            if response.ok:
+                return {u['user_tg_id'] for u in response.json() if u.get('user_tg_id')}
+            return set()
+        except Exception as e:
+            logger.error(f"get_sent_user_ids_for_campaign error: {e}")
+            return set()
+
+    # ==================== ERROR LOGS ====================
+
+    @classmethod
+    def log_error(cls, user_id: int, error_type: str, error_message: str,
+                 campaign_id: int = None, account_id: int = None, context: Dict = None) -> bool:
+        """Log error for tracking"""
+        data = {
+            'owner_id': user_id,
+            'error_type': error_type,
+            'error_message': error_message[:500] if error_message else None,
+            'created_at': datetime.utcnow().isoformat()
+        }
+        if campaign_id:
+            data['campaign_id'] = campaign_id
+        if account_id:
+            data['account_id'] = account_id
+        if context:
+            data['context'] = context
+        
+        return cls._insert('error_logs', data) is not None
+
+    @classmethod
+    def get_error_stats(cls, user_id: int, days: int = 7) -> Dict:
+        """Get error statistics for user"""
+        try:
+            start_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+            params = {
+                'select': 'error_type', 
+                'owner_id': f'eq.{user_id}',
+                'created_at': f'gte.{start_date}'
+            }
+            response = requests.get(cls._api_url('error_logs'), headers=cls._headers(), params=params, timeout=10)
+            errors = response.json() if response.ok else []
+            stats = {}
+            for err in errors:
+                t = err.get('error_type', 'unknown')
+                stats[t] = stats.get(t, 0) + 1
+            return stats
+        except Exception:
+            return {}
 
     # ==================== STATISTICS ====================
 
@@ -594,21 +826,41 @@ class DB:
             'success_rate': round(total_sent / (total_sent + total_failed) * 100, 1) if (total_sent + total_failed) > 0 else 0
         }
 
+    # ==================== FLOOD WAIT MANAGEMENT ====================
+
     @classmethod
-    def get_error_stats(cls, user_id: int, days: int = 7) -> Dict:
+    def set_account_flood_wait(cls, account_id: int, wait_seconds: int) -> bool:
+        """Set account to flood_wait status with resume time"""
+        flood_until = (datetime.utcnow() + timedelta(seconds=wait_seconds)).isoformat()
+        return cls.update_account(
+            account_id,
+            status='flood_wait',
+            flood_wait_until=flood_until,
+            error_message=f'Flood wait: {wait_seconds}s'
+        )
+
+    @classmethod
+    def get_accounts_ready_after_flood(cls) -> List[Dict]:
+        """Get accounts whose flood_wait has expired"""
         try:
-            start_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+            now = datetime.utcnow().isoformat()
             params = {
-                'select': 'error_type', 
-                'owner_id': f'eq.{user_id}',
-                'created_at': f'gte.{start_date}'
+                'select': '*',
+                'status': 'eq.flood_wait',
+                'flood_wait_until': f'lte.{now}'
             }
-            response = requests.get(cls._api_url('error_logs'), headers=cls._headers(), params=params, timeout=10)
-            errors = response.json() if response.ok else []
-            stats = {}
-            for err in errors:
-                t = err.get('error_type', 'unknown')
-                stats[t] = stats.get(t, 0) + 1
-            return stats
-        except Exception:
-            return {}
+            response = requests.get(cls._api_url('telegram_accounts'), headers=cls._headers(), params=params, timeout=10)
+            return response.json() if response.ok else []
+        except Exception as e:
+            logger.error(f"get_accounts_ready_after_flood error: {e}")
+            return []
+
+    @classmethod
+    def reactivate_account(cls, account_id: int) -> bool:
+        """Reactivate account after flood_wait"""
+        return cls.update_account(
+            account_id,
+            status='active',
+            flood_wait_until=None,
+            error_message=None
+        )
