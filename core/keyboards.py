@@ -1,6 +1,6 @@
 """
 Keyboard builders - Reply keyboards (static menu) + Inline for lists
-Extended v2.0 with new features
+Extended v2.0 with new features - FIXED HTML parsing
 """
 from typing import List, Dict, Optional
 
@@ -454,6 +454,16 @@ def kb_inline_template_folders(folders: List[dict], mode: str = 'move', template
     return inline_keyboard(buttons)
 
 
+def _get_reliability_emoji(reliability: float) -> str:
+    """Get emoji for reliability score without < > symbols"""
+    if reliability >= 80:
+        return '🟢'
+    elif reliability >= 50:
+        return '🟡'
+    else:
+        return '🔴'
+
+
 def kb_inline_accounts(folders: List[dict], accounts: List[dict]) -> dict:
     """Inline keyboard for account selection"""
     from core.db import DB
@@ -469,9 +479,8 @@ def kb_inline_accounts(folders: List[dict], accounts: List[dict]) -> dict:
         phone = a['phone']
         masked = f"{phone[:4]}**{phone[-2:]}" if len(phone) > 6 else phone
         daily = f"{a.get('daily_sent', 0) or 0}/{a.get('daily_limit', 50) or 50}"
-        # Показываем reliability score
         rel = a.get('reliability_score', 100) or 100
-        rel_icon = '🟢' if rel >= 80 else '🟡' if rel >= 50 else '🔴'
+        rel_icon = _get_reliability_emoji(rel)
         buttons.append([{
             'text': f"{status}{rel_icon} {masked} [{daily}]",
             'callback_data': f"acc:{a['id']}"
@@ -488,7 +497,7 @@ def kb_inline_acc_folders(folders: List[dict], accounts: List[dict]) -> dict:
         masked = f"{phone[:4]}**{phone[-2:]}" if len(phone) > 6 else phone
         daily = f"{a.get('daily_sent', 0) or 0}/{a.get('daily_limit', 50) or 50}"
         rel = a.get('reliability_score', 100) or 100
-        rel_icon = '🟢' if rel >= 80 else '🟡' if rel >= 50 else '🔴'
+        rel_icon = _get_reliability_emoji(rel)
         buttons.append([{
             'text': f"{status}{rel_icon} {masked} [{daily}]",
             'callback_data': f"acc:{a['id']}"
@@ -646,7 +655,6 @@ def kb_inline_stop_triggers(triggers: List[dict]) -> dict:
 
 def kb_inline_hourly_stats(stats: List[dict]) -> dict:
     """Inline keyboard showing hourly stats summary"""
-    # Группируем по часам для простоты
     buttons = []
     for s in stats[:24]:
         hour = s.get('hour', 0)
