@@ -1,6 +1,6 @@
 """
-Audience management handlers
-Static menu version
+Audience management handlers - Extended v2.0
+With stop triggers integration and keyword filter display
 """
 import logging
 from core.db import DB
@@ -8,8 +8,9 @@ from core.telegram import send_message, send_document, answer_callback
 from core.keyboards import (
     kb_main_menu, kb_cancel, kb_back, kb_back_cancel,
     kb_audiences_menu, kb_audience_actions, kb_audience_tags,
-    kb_blacklist_menu, kb_confirm_delete,
-    kb_inline_audiences, kb_inline_tags, kb_inline_audience_tags, kb_inline_blacklist
+    kb_blacklist_menu, kb_confirm_delete, kb_stop_triggers_menu,
+    kb_inline_audiences, kb_inline_tags, kb_inline_audience_tags, 
+    kb_inline_blacklist, kb_inline_stop_triggers
 )
 from core.menu import show_main_menu, BTN_CANCEL, BTN_BACK, BTN_MAIN_MENU
 
@@ -26,6 +27,7 @@ BTN_AUD_BACK_LIST = '◀️ К списку'
 BTN_CREATE_TAG = '➕ Создать тег'
 BTN_ADD = '➕ Добавить'
 BTN_LIST = '📋 Список'
+BTN_STOP_WORDS = '🛡 Стоп-слова'
 BTN_CONFIRM_DELETE = '🗑 Да, удалить'
 
 
@@ -35,12 +37,17 @@ def show_audiences_menu(chat_id: int, user_id: int):
     sources = DB.get_audience_sources(user_id)
     total = sum(s.get('parsed_count', 0) for s in sources)
     completed = sum(1 for s in sources if s.get('status') == 'completed')
+    with_keywords = sum(1 for s in sources if s.get('keyword_filter'))
+    
+    blacklist_count = len(DB.get_blacklist(user_id))
     
     send_message(chat_id,
         f"📊 <b>Аудитории</b>\n\n"
         f"📁 Всего: <b>{len(sources)}</b>\n"
         f"✅ Готовых: <b>{completed}</b>\n"
-        f"👥 Пользователей: <b>{total}</b>",
+        f"🔑 С ключевыми словами: <b>{with_keywords}</b>\n"
+        f"👥 Пользователей: <b>{total}</b>\n"
+        f"🚫 В чёрном списке: <b>{blacklist_count}</b>",
         kb_audiences_menu()
     )
 
@@ -62,7 +69,7 @@ def handle_audiences(chat_id: int, user_id: int, text: str, state: str, saved: d
             show_main_menu(chat_id, user_id)
         elif state.startswith('audiences:view'):
             show_audience_list(chat_id, user_id)
-        elif state in ['audiences:tags', 'audiences:blacklist']:
+        elif state in ['audiences:tags', 'audiences:blacklist', 'audiences:stop_triggers']:
             show_audiences_menu(chat_id, user_id)
         elif state.startswith('audiences:'):
             show_audiences_menu(chat_id, user_id)
@@ -99,7 +106,7 @@ def handle_audiences(chat_id: int, user_id: int, text: str, state: str, saved: d
             export_audience(chat_id, user_id, source_id)
             return True
         
-        if text == BTN_AUD_TAGS:
+        if text == BTN_AUD_TAGS or text == '🏷 Теги':
             show_audience_tags(chat_id, user_id, source_id)
             return True
         
@@ -180,6 +187,9 @@ def handle_audiences(chat_id: int, user_id: int, text: str, state: str, saved: d
         if text == BTN_LIST:
             show_blacklist_list(chat_id, user_id)
             return True
+        if text == BTN_STOP_WORDS or text == '🛡 Стоп-слова':
+            show_stop_triggers_menu(chat_id, user_id)
+            return True
     
     # Add to blacklist
     if state == 'audiences:blacklist_add':
@@ -198,7 +208,7 @@ def handle_audiences(chat_id: int, user_id: int, text: str, state: str, saved: d
             send_message(chat_id, "❌ Введите @username или ID", kb_back_cancel())
             return True
         
-        result = DB.add_to_blacklist(user_id, tg_user_id=tg_id, username=username)
+        result = DB.add_to_blacklist(user_id, tg_user_id=tg_id, username=username, source='manual')
         display = f"@{username}" if username else str(tg_id)
         
         if result:
@@ -207,6 +217,39 @@ def handle_audiences(chat_id: int, user_id: int, text: str, state: str, saved: d
             send_message(chat_id, "❌ Ошибка добавления", kb_blacklist_menu())
         
         DB.set_user_state(user_id, 'audiences:blacklist')
+        return True
+    
+    # Stop triggers menu (also handled in settings, but accessible from blacklist)
+    if state == 'audiences:stop_triggers':
+        if text == '➕ Добавить слово':
+            DB.set_user_state(user_id, 'audiences:add_stop_word')
+            send_message(chat_id,
+                "🛡 <b>Добавление стоп-слова</b>\n\n"
+                "Введите слово или фразу.\n"
+                "При получении сообщения с этим словом пользователь будет добавлен в чёрный список.",
+                kb_back_cancel()
+            )
+            return True
+        if text == '📋 Список слов':
+            show_stop_triggers_list(chat_id, user_id)
+            return True
+    
+    # Add stop word
+    if state == 'audiences:add_stop_word':
+        word = text.strip().lower()
+        if len(word) < 2:
+            send_message(chat_id, "❌ Слово должно быть минимум 2 символа", kb_back_cancel())
+            return True
+        if len(word) > 100:
+            send_message(chat_id, "❌ Максимум 100 символов", kb_back_cancel())
+            return True
+        
+        result = DB.add_stop_trigger(user_id, word)
+        if result:
+            send_message(chat_id, f"✅ Стоп-слово «{word}» добавлено", kb_stop_triggers_menu())
+        else:
+            send_message(chat_id, "❌ Ошибка добавления", kb_stop_triggers_menu())
+        DB.set_user_state(user_id, 'audiences:stop_triggers')
         return True
     
     return False
@@ -249,6 +292,23 @@ def handle_audiences_callback(chat_id: int, msg_id: int, user_id: int, data: str
         show_blacklist_list(chat_id, user_id)
         return True
     
+    # Stop trigger toggle
+    if data.startswith('togstop:'):
+        trigger_id = int(data.split(':')[1])
+        trigger = DB._select('stop_triggers', filters={'id': trigger_id}, single=True)
+        if trigger:
+            new_active = not trigger.get('is_active', True)
+            DB._update('stop_triggers', {'is_active': new_active}, {'id': trigger_id})
+        show_stop_triggers_list(chat_id, user_id)
+        return True
+    
+    # Stop trigger deletion
+    if data.startswith('delstop:'):
+        trigger_id = int(data.split(':')[1])
+        DB.delete_stop_trigger(trigger_id)
+        show_stop_triggers_list(chat_id, user_id)
+        return True
+    
     return False
 
 
@@ -266,7 +326,8 @@ def show_audience_list(chat_id: int, user_id: int):
         )
     else:
         send_message(chat_id,
-            "📊 <b>Выберите аудиторию:</b>",
+            "📊 <b>Выберите аудиторию:</b>\n\n"
+            "🔑 — есть фильтр по ключевым словам",
             kb_inline_audiences(sources)
         )
         send_message(chat_id, "👆 Выберите аудиторию выше или:", kb_audiences_menu())
@@ -290,15 +351,49 @@ def show_audience_view(chat_id: int, user_id: int, source_id: int):
     }
     tags_str = ', '.join(source.get('tags', [])) or 'нет'
     
+    # Keyword filter info
+    kw_info = ""
+    if source.get('keyword_filter'):
+        keywords = source['keyword_filter']
+        mode = 'любое' if source.get('keyword_match_mode') == 'any' else 'все'
+        kw_preview = ', '.join(keywords[:5])
+        if len(keywords) > 5:
+            kw_preview += f'... (+{len(keywords) - 5})'
+        kw_info = (
+            f"\n\n🔑 <b>Ключевые слова ({len(keywords)}):</b>\n"
+            f"<code>{kw_preview}</code>\n"
+            f"🔍 Режим: {mode}"
+        )
+    
+    # Filters info
+    filters = source.get('filters', {})
+    filters_info = ""
+    if filters:
+        f_parts = []
+        if filters.get('only_username'):
+            f_parts.append('только с username')
+        if filters.get('only_photo'):
+            f_parts.append('только с фото')
+        if filters.get('exclude_bots'):
+            f_parts.append('без ботов')
+        if f_parts:
+            filters_info = f"\n🔧 <b>Фильтры:</b> {', '.join(f_parts)}"
+    
+    # Error info
+    error_info = ""
+    if source.get('error'):
+        error_info = f"\n\n⚠️ <b>Ошибка:</b> {source['error'][:100]}"
+    
     send_message(chat_id,
         f"📊 <b>Аудитория #{source_id}</b>\n\n"
         f"🔗 Источник: {source['source_link']}\n"
         f"📈 Статус: {status_map.get(source['status'], source['status'])}\n"
-        f"🏷 Теги: {tags_str}\n\n"
+        f"🏷 Теги: {tags_str}{filters_info}\n\n"
         f"<b>👥 Статистика:</b>\n"
         f"├ Всего: <b>{stats['total']}</b>\n"
         f"├ Отправлено: <b>{stats['sent']}</b>\n"
-        f"└ Осталось: <b>{stats['remaining']}</b>",
+        f"└ Осталось: <b>{stats['remaining']}</b>"
+        f"{kw_info}{error_info}",
         kb_audience_actions()
     )
 
@@ -311,17 +406,21 @@ def export_audience(chat_id: int, user_id: int, source_id: int):
         send_message(chat_id, "❌ Аудитория пуста", kb_audience_actions())
         return
     
-    csv_lines = ["username,first_name,last_name,sent"]
+    csv_lines = ["username,first_name,last_name,tg_user_id,sent,has_photo,is_premium"]
     for u in users:
         un = u.get('username', '') or ''
         fn = (u.get('first_name', '') or '').replace(',', ' ')
         ln = (u.get('last_name', '') or '').replace(',', ' ')
+        tg_id = u.get('tg_user_id', '') or ''
         st = 'yes' if u.get('sent') else 'no'
-        csv_lines.append(f"{un},{fn},{ln},{st}")
+        photo = 'yes' if u.get('has_photo') else 'no'
+        premium = 'yes' if u.get('is_premium') else 'no'
+        csv_lines.append(f"{un},{fn},{ln},{tg_id},{st},{photo},{premium}")
     
     csv_content = '\n'.join(csv_lines)
     send_document(chat_id, csv_content.encode('utf-8'), 
-                  f"audience_{source_id}.csv", "📤 Экспорт аудитории",
+                  f"audience_{source_id}.csv", 
+                  f"📤 Экспорт аудитории #{source_id}\n👥 Пользователей: {len(users)}",
                   kb_audience_actions())
 
 
@@ -363,11 +462,21 @@ def show_tags_menu(chat_id: int, user_id: int):
 def show_blacklist_menu(chat_id: int, user_id: int):
     """Show blacklist menu"""
     blacklist = DB.get_blacklist_items(user_id)
+    triggers = DB.get_stop_triggers(user_id)
+    active_triggers = sum(1 for t in triggers if t.get('is_active'))
+    
+    # Count by source
+    manual = sum(1 for b in blacklist if b.get('source') == 'manual')
+    auto = sum(1 for b in blacklist if b.get('source') != 'manual')
+    
     DB.set_user_state(user_id, 'audiences:blacklist')
     
     send_message(chat_id,
         f"🚫 <b>Чёрный список</b>\n\n"
-        f"Записей: <b>{len(blacklist)}</b>\n\n"
+        f"Всего записей: <b>{len(blacklist)}</b>\n"
+        f"├ Вручную: {manual}\n"
+        f"└ Автоматически: {auto}\n\n"
+        f"🛡 Активных стоп-слов: <b>{active_triggers}</b>\n\n"
         "Пользователи из этого списка не будут получать рассылку.",
         kb_blacklist_menu()
     )
@@ -380,5 +489,49 @@ def show_blacklist_list(chat_id: int, user_id: int):
     if not items:
         send_message(chat_id, "🚫 <b>Чёрный список пуст</b>", kb_blacklist_menu())
     else:
-        send_message(chat_id, "🚫 <b>Чёрный список:</b>", kb_inline_blacklist(items))
+        send_message(chat_id, 
+            "🚫 <b>Чёрный список:</b>\n\n"
+            "✋ — добавлен вручную\n"
+            "🤖 — автоматически по ответу\n"
+            "🚫 — автоблокировка",
+            kb_inline_blacklist(items))
         send_message(chat_id, "👆 Нажмите ✖️ для удаления", kb_blacklist_menu())
+
+
+def show_stop_triggers_menu(chat_id: int, user_id: int):
+    """Show stop triggers menu from blacklist"""
+    DB.set_user_state(user_id, 'audiences:stop_triggers')
+    
+    triggers = DB.get_stop_triggers(user_id)
+    active = sum(1 for t in triggers if t.get('is_active'))
+    total_hits = sum(t.get('hits_count', 0) or 0 for t in triggers)
+    
+    send_message(chat_id,
+        f"🛡 <b>Стоп-слова</b>\n\n"
+        f"Всего слов: <b>{len(triggers)}</b>\n"
+        f"Активных: <b>{active}</b>\n"
+        f"Срабатываний: <b>{total_hits}</b>\n\n"
+        f"При получении ответа с одним из этих слов, "
+        f"пользователь добавляется в чёрный список.",
+        kb_stop_triggers_menu()
+    )
+
+
+def show_stop_triggers_list(chat_id: int, user_id: int):
+    """Show list of stop triggers"""
+    triggers = DB.get_stop_triggers(user_id)
+    
+    if not triggers:
+        send_message(chat_id,
+            "🛡 <b>Стоп-слова</b>\n\n"
+            "Список пуст. Добавьте первое слово!",
+            kb_stop_triggers_menu()
+        )
+    else:
+        send_message(chat_id,
+            f"🛡 <b>Стоп-слова ({len(triggers)}):</b>\n\n"
+            f"✅ — активно, ❌ — отключено\n"
+            f"Число в скобках — количество срабатываний",
+            kb_inline_stop_triggers(triggers)
+        )
+        send_message(chat_id, "👆 Нажмите для вкл/выкл или удаления", kb_stop_triggers_menu())
