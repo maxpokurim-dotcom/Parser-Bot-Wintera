@@ -1,12 +1,11 @@
 """
-Telegram Bot Webhook - Entry Point
-Static menu version with Reply Keyboards
+Telegram Bot Webhook - Entry Point v2.0
+With Panic Stop, Resume, and extended handlers
 """
 import json
 import logging
 from http.server import BaseHTTPRequestHandler
 
-# Импорты из папки core (не api!)
 from core.db import DB
 from core.telegram import send_message, answer_callback
 from core.keyboards import kb_main_menu
@@ -14,6 +13,7 @@ from core.keyboards import kb_main_menu
 # Import handlers
 from core.menu import (
     show_main_menu, handle_start, handle_cancel,
+    handle_panic_stop, handle_resume,
     BTN_PARSING_CHATS, BTN_COMMENTS, BTN_AUDIENCES, BTN_TEMPLATES,
     BTN_ACCOUNTS, BTN_MAILING, BTN_STATS, BTN_SETTINGS, BTN_CANCEL, BTN_BACK
 )
@@ -34,7 +34,7 @@ from core.accounts import (
 from core.mailing import (
     show_mailing_menu, handle_mailing, handle_mailing_callback
 )
-from core.settings import show_settings_menu, handle_settings
+from core.settings import show_settings_menu, handle_settings, handle_settings_callback
 from core.stats import show_stats_menu, handle_stats
 
 logging.basicConfig(level=logging.INFO)
@@ -73,6 +73,28 @@ def handle_message(message: dict):
     if text == '/stats':
         show_stats_menu(chat_id, user_id)
         return
+
+    # Panic stop command
+    if text == '/panic' or text == '/panic_stop':
+        handle_panic_stop(chat_id, user_id)
+        return
+
+    # Resume command
+    if text == '/resume':
+        handle_resume(chat_id, user_id)
+        return
+
+    # Check if system is paused (for operations)
+    if DB.is_system_paused(user_id):
+        if text not in [BTN_STATS, '/stats', '/resume']:
+            # Allow stats and resume even when paused
+            if state and not state.startswith('stats:'):
+                send_message(chat_id,
+                    "🚨 <b>Система приостановлена</b>\n\n"
+                    "Используйте /resume для возобновления работы.",
+                    kb_main_menu()
+                )
+                return
 
     # Main menu buttons (when no specific state)
     if not state or state.endswith(':menu') or state.endswith(':list'):
@@ -188,7 +210,8 @@ def handle_callback(callback: dict):
     # Route callbacks to handlers
 
     # Audience callbacks
-    if data.startswith('aud:') or data.startswith('deltag:') or data.startswith('togtag:') or data.startswith('delbl:'):
+    if data.startswith('aud:') or data.startswith('deltag:') or data.startswith('togtag:') or \
+       data.startswith('delbl:') or data.startswith('togstop:') or data.startswith('delstop:'):
         handle_audiences_callback(chat_id, msg_id, user_id, data)
         return
 
@@ -204,8 +227,14 @@ def handle_callback(callback: dict):
 
     # Mailing callbacks
     if data.startswith('msrc:') or data.startswith('mtpl:') or data.startswith('macc:') or \
-       data.startswith('cmp:') or data.startswith('schd:') or data.startswith('delschd:'):
+       data.startswith('cmp:') or data.startswith('schd:') or data.startswith('delschd:') or \
+       data.startswith('task:') or data.startswith('deltask:'):
         handle_mailing_callback(chat_id, msg_id, user_id, data)
+        return
+
+    # Settings callbacks
+    if data.startswith('set:'):
+        handle_settings_callback(chat_id, msg_id, user_id, data)
         return
 
 
@@ -221,7 +250,7 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps({
             'status': 'ok',
             'message': 'Telegram Bot is running',
-            'version': '3.0.0-static-menu'
+            'version': '3.1.0-extended'
         }).encode())
 
     def do_POST(self):
