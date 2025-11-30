@@ -1,6 +1,6 @@
 """
 Account management handlers - Extended v2.0
-With limit prediction and reliability score
+With limit prediction and reliability score - FIXED HTML parsing
 """
 import re
 import logging
@@ -35,6 +35,26 @@ BTN_CONFIRM_DELETE = '🗑 Да, удалить'
 BTN_CUSTOM_LIMIT = '📝 Свой лимит'
 
 
+def _get_reliability_emoji(reliability: float) -> str:
+    """Get emoji for reliability score"""
+    if reliability >= 80:
+        return '🟢'
+    elif reliability >= 50:
+        return '🟡'
+    else:
+        return '🔴'
+
+
+def _get_reliability_text(reliability: float) -> str:
+    """Get text description for reliability"""
+    if reliability >= 80:
+        return 'высокая'
+    elif reliability >= 50:
+        return 'средняя'
+    else:
+        return 'низкая'
+
+
 def show_accounts_menu(chat_id: int, user_id: int):
     """Show accounts menu"""
     DB.set_user_state(user_id, 'accounts:menu')
@@ -56,7 +76,8 @@ def show_accounts_menu(chat_id: int, user_id: int):
     else:
         avg_reliability = 0
     
-    reliability_emoji = '🟢' if avg_reliability >= 80 else '🟡' if avg_reliability >= 50 else '🔴'
+    reliability_emoji = _get_reliability_emoji(avg_reliability)
+    reliability_text = _get_reliability_text(avg_reliability)
     
     send_message(chat_id,
         f"👤 <b>Аккаунты</b>\n\n"
@@ -64,7 +85,7 @@ def show_accounts_menu(chat_id: int, user_id: int):
         f"✅ Активных: <b>{active}</b>\n"
         f"📁 Папок: <b>{len(folders)}</b>\n\n"
         f"💳 Доступно сообщений: <b>{total_available}</b>\n"
-        f"{reliability_emoji} Средняя надёжность: <b>{avg_reliability:.0f}%</b>",
+        f"{reliability_emoji} Средняя надёжность: <b>{avg_reliability:.0f}%</b> ({reliability_text})",
         kb_accounts_menu()
     )
 
@@ -432,7 +453,7 @@ def show_account_list(chat_id: int, user_id: int):
         if kb:
             send_message(chat_id, 
                 "👤 <b>Выберите аккаунт или папку:</b>\n\n"
-                "🟢 >80% | 🟡 50-80% | 🔴 <50% — надёжность", 
+                "🟢 высокая | 🟡 средняя | 🔴 низкая — надёжность", 
                 kb)
         send_message(chat_id, "👆 Выберите выше или:", kb_accounts_menu())
 
@@ -463,7 +484,8 @@ def show_account_view(chat_id: int, user_id: int, account_id: int):
     
     # Reliability score
     reliability = account.get('reliability_score', 100) or 100
-    rel_emoji = '🟢' if reliability >= 80 else '🟡' if reliability >= 50 else '🔴'
+    rel_emoji = _get_reliability_emoji(reliability)
+    rel_text = _get_reliability_text(reliability)
     
     # Consecutive errors
     consecutive_errors = account.get('consecutive_errors', 0) or 0
@@ -501,7 +523,7 @@ def show_account_view(chat_id: int, user_id: int, account_id: int):
         f"📊 Статус: {status_map.get(account['status'], account['status'])}{flood_info}\n"
         f"📤 Сегодня: <b>{daily_sent}/{daily_limit}</b>\n"
         f"💳 Доступно: <b>{remaining}</b>\n"
-        f"{rel_emoji} Надёжность: <b>{reliability:.0f}%</b>"
+        f"{rel_emoji} Надёжность: <b>{reliability:.0f}%</b> ({rel_text})"
         f"{errors_info}{folder_info}{warmup_info}",
         kb_account_actions()
     )
@@ -530,7 +552,8 @@ def show_account_prediction(chat_id: int, user_id: int, account_id: int):
     
     # Reliability emoji
     reliability = prediction.get('reliability_score', 100)
-    rel_emoji = '🟢' if reliability >= 80 else '🟡' if reliability >= 50 else '🔴'
+    rel_emoji = _get_reliability_emoji(reliability)
+    rel_text = _get_reliability_text(reliability)
     
     hours_left = prediction.get('estimated_hours_left')
     hours_info = f"\n⏱ <b>При текущем темпе:</b> ~{hours_left:.1f} ч" if hours_left else ""
@@ -539,7 +562,7 @@ def show_account_prediction(chat_id: int, user_id: int, account_id: int):
         f"📈 <b>Прогноз для аккаунта</b>\n\n"
         f"📱 <b>Аккаунт:</b> {masked}\n"
         f"{status_emoji} <b>Статус:</b> {status}\n"
-        f"{rel_emoji} <b>Надёжность:</b> {reliability:.0f}%\n\n"
+        f"{rel_emoji} <b>Надёжность:</b> {reliability:.0f}% ({rel_text})\n\n"
         f"📊 <b>Лимиты:</b>\n"
         f"├ Дневной лимит: {prediction['daily_limit']}\n"
         f"├ Отправлено сегодня: {prediction['daily_sent']}\n"
@@ -576,7 +599,7 @@ def show_all_accounts_prediction(chat_id: int, user_id: int):
         total_remaining += remaining
         
         reliability = acc.get('reliability_score', 100) or 100
-        rel_emoji = '🟢' if reliability >= 80 else '🟡' if reliability >= 50 else '🔴'
+        rel_emoji = _get_reliability_emoji(reliability)
         
         status = acc.get('status', 'active')
         if status == 'flood_wait':
