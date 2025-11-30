@@ -1,6 +1,6 @@
 """
 Parsing handlers - chats and comments
-Static menu version
+Extended v2.0 with keyword filtering
 """
 import re
 import logging
@@ -9,16 +9,26 @@ from core.telegram import send_message
 from core.keyboards import (
     kb_main_menu, kb_cancel, kb_back_cancel,
     kb_parse_msg_limit, kb_parse_filter_yn, kb_parse_confirm,
-    kb_comments_range, kb_min_length
+    kb_comments_range, kb_min_length, kb_keyword_filter, kb_keyword_match_mode
 )
 from core.menu import show_main_menu, BTN_CANCEL, BTN_BACK
 
 logger = logging.getLogger(__name__)
 
+
 # ==================== CHAT PARSING ====================
 
 def start_chat_parsing(chat_id: int, user_id: int):
     """Start chat parsing flow"""
+    # Check if system is paused
+    if DB.is_system_paused(user_id):
+        send_message(chat_id,
+            "🚨 <b>Система приостановлена</b>\n\n"
+            "Используйте /resume для возобновления работы.",
+            kb_main_menu()
+        )
+        return
+    
     # Check if user has active account
     account = DB.get_any_active_account(user_id)
     if not account:
@@ -39,6 +49,7 @@ def start_chat_parsing(chat_id: int, user_id: int):
         f"📱 Аккаунт для парсинга: <code>{account['phone'][:4]}***{account['phone'][-2:]}</code>",
         kb_cancel()
     )
+
 
 def handle_chat_parsing(chat_id: int, user_id: int, text: str, state: str, saved: dict) -> bool:
     """Handle chat parsing states. Returns True if handled."""
@@ -66,9 +77,31 @@ def handle_chat_parsing(chat_id: int, user_id: int, text: str, state: str, saved
         elif state == 'parse_chat:exclude_bots':
             DB.set_user_state(user_id, 'parse_chat:only_photo', saved)
             send_message(chat_id, "📸 Собирать только с фото профиля?", kb_parse_filter_yn())
-        elif state == 'parse_chat:confirm':
+        elif state == 'parse_chat:keyword_ask':
             DB.set_user_state(user_id, 'parse_chat:exclude_bots', saved)
             send_message(chat_id, "🤖 Исключить ботов?", kb_parse_filter_yn())
+        elif state == 'parse_chat:keyword_input':
+            DB.set_user_state(user_id, 'parse_chat:keyword_ask', saved)
+            send_message(chat_id,
+                "🔑 <b>Фильтр по ключевым словам</b>\n\n"
+                "Хотите собирать только тех, кто упоминал определённые слова в сообщениях?",
+                kb_keyword_filter()
+            )
+        elif state == 'parse_chat:keyword_mode':
+            DB.set_user_state(user_id, 'parse_chat:keyword_input', saved)
+            send_message(chat_id,
+                "🔑 <b>Введите ключевые слова</b>\n\n"
+                "Через запятую, например:\n"
+                "<code>купить, цена, заказать, доставка</code>",
+                kb_back_cancel()
+            )
+        elif state == 'parse_chat:confirm':
+            DB.set_user_state(user_id, 'parse_chat:keyword_ask', saved)
+            send_message(chat_id,
+                "🔑 <b>Фильтр по ключевым словам</b>\n\n"
+                "Хотите собирать только тех, кто упоминал определённые слова?",
+                kb_keyword_filter()
+            )
         return True
     
     # State: waiting for chat link
@@ -159,18 +192,76 @@ def handle_chat_parsing(chat_id: int, user_id: int, text: str, state: str, saved
             return True
         
         saved['exclude_bots'] = (text == '✅ Да')
-        DB.set_user_state(user_id, 'parse_chat:confirm', saved)
+        DB.set_user_state(user_id, 'parse_chat:keyword_ask', saved)
         
         send_message(chat_id,
-            f"📋 <b>Подтверждение парсинга</b>\n\n"
-            f"🔗 Чат: <b>{saved.get('chat_link')}</b>\n"
-            f"📊 Лимит: <b>{saved.get('msg_limit')}</b> сообщений\n"
-            f"👤 Только с username: <b>{'Да' if saved.get('only_username') else 'Нет'}</b>\n"
-            f"📸 Только с фото: <b>{'Да' if saved.get('only_photo') else 'Нет'}</b>\n"
-            f"🤖 Без ботов: <b>{'Да' if saved.get('exclude_bots') else 'Нет'}</b>\n\n"
-            "🚀 Запустить парсинг?",
-            kb_parse_confirm()
+            "🔑 <b>Фильтр по ключевым словам</b>\n\n"
+            "Хотите собирать только тех, кто упоминал определённые слова в сообщениях?\n\n"
+            "Это полезно для сбора целевой аудитории по интересам.",
+            kb_keyword_filter()
         )
+        return True
+    
+    # State: ask about keyword filter
+    if state == 'parse_chat:keyword_ask':
+        if text == '✅ Да, добавить':
+            DB.set_user_state(user_id, 'parse_chat:keyword_input', saved)
+            send_message(chat_id,
+                "🔑 <b>Введите ключевые слова</b>\n\n"
+                "Через запятую, например:\n"
+                "<code>купить, цена, заказать, доставка</code>\n\n"
+                "Будут собраны только те, чьи сообщения содержат эти слова.",
+                kb_back_cancel()
+            )
+            return True
+        
+        if text == '❌ Нет, пропустить':
+            # Skip keyword filter, go to confirm
+            saved['keyword_filter'] = None
+            saved['keyword_match_mode'] = None
+            _show_chat_confirm(chat_id, user_id, saved)
+            return True
+        
+        send_message(chat_id, "❌ Выберите вариант", kb_keyword_filter())
+        return True
+    
+    # State: keyword input
+    if state == 'parse_chat:keyword_input':
+        keywords = [kw.strip().lower() for kw in text.split(',') if kw.strip()]
+        
+        if not keywords:
+            send_message(chat_id, "❌ Введите хотя бы одно ключевое слово:", kb_back_cancel())
+            return True
+        
+        if len(keywords) > 50:
+            send_message(chat_id, "❌ Максимум 50 ключевых слов:", kb_back_cancel())
+            return True
+        
+        saved['keyword_filter'] = keywords
+        DB.set_user_state(user_id, 'parse_chat:keyword_mode', saved)
+        
+        send_message(chat_id,
+            f"✅ Ключевые слова ({len(keywords)}):\n"
+            f"<code>{', '.join(keywords[:10])}</code>"
+            f"{'...' if len(keywords) > 10 else ''}\n\n"
+            "🔍 <b>Режим поиска:</b>\n"
+            "• <b>Любое слово</b> — сообщение содержит хотя бы одно из слов\n"
+            "• <b>Все слова</b> — сообщение содержит все указанные слова",
+            kb_keyword_match_mode()
+        )
+        return True
+    
+    # State: keyword match mode
+    if state == 'parse_chat:keyword_mode':
+        if text == '🔍 Любое слово':
+            saved['keyword_match_mode'] = 'any'
+        elif text == '🔍 Все слова':
+            saved['keyword_match_mode'] = 'all'
+        else:
+            send_message(chat_id, "❌ Выберите режим поиска", kb_keyword_match_mode())
+            return True
+        
+        _show_chat_confirm(chat_id, user_id, saved)
         return True
     
     # State: confirm parsing
@@ -189,16 +280,25 @@ def handle_chat_parsing(chat_id: int, user_id: int, text: str, state: str, saved
         }
         
         source = DB.create_audience_source(
-            user_id, 'chat', saved.get('chat_link', ''), filters
+            user_id=user_id,
+            source_type='chat',
+            source_link=saved.get('chat_link', ''),
+            filters=filters,
+            keyword_filter=saved.get('keyword_filter'),
+            keyword_match_mode=saved.get('keyword_match_mode', 'any')
         )
         
         DB.clear_user_state(user_id)
         
         if source:
+            kw_info = ""
+            if saved.get('keyword_filter'):
+                kw_info = f"\n🔑 Ключевые слова: {len(saved['keyword_filter'])} шт."
+            
             send_message(chat_id,
                 f"✅ <b>Задача создана!</b>\n\n"
                 f"🆔 ID: <code>{source['id']}</code>\n"
-                f"📊 Статус: ⏳ В очереди\n\n"
+                f"📊 Статус: ⏳ В очереди{kw_info}\n\n"
                 f"Результат появится в разделе «📊 Аудитории».",
                 kb_main_menu()
             )
@@ -209,10 +309,46 @@ def handle_chat_parsing(chat_id: int, user_id: int, text: str, state: str, saved
     return False
 
 
+def _show_chat_confirm(chat_id: int, user_id: int, saved: dict):
+    """Show chat parsing confirmation"""
+    DB.set_user_state(user_id, 'parse_chat:confirm', saved)
+    
+    kw_info = ""
+    if saved.get('keyword_filter'):
+        mode = 'любое' if saved.get('keyword_match_mode') == 'any' else 'все'
+        kw_info = (
+            f"\n\n🔑 <b>Ключевые слова:</b>\n"
+            f"<code>{', '.join(saved['keyword_filter'][:5])}</code>"
+            f"{'...' if len(saved['keyword_filter']) > 5 else ''}\n"
+            f"🔍 Режим: <b>{mode}</b>"
+        )
+    
+    send_message(chat_id,
+        f"📋 <b>Подтверждение парсинга</b>\n\n"
+        f"🔗 Чат: <b>{saved.get('chat_link')}</b>\n"
+        f"📊 Лимит: <b>{saved.get('msg_limit')}</b> сообщений\n"
+        f"👤 Только с username: <b>{'Да' if saved.get('only_username') else 'Нет'}</b>\n"
+        f"📸 Только с фото: <b>{'Да' if saved.get('only_photo') else 'Нет'}</b>\n"
+        f"🤖 Без ботов: <b>{'Да' if saved.get('exclude_bots') else 'Нет'}</b>"
+        f"{kw_info}\n\n"
+        "🚀 Запустить парсинг?",
+        kb_parse_confirm()
+    )
+
+
 # ==================== COMMENTS PARSING ====================
 
 def start_comments_parsing(chat_id: int, user_id: int):
     """Start comments parsing flow"""
+    # Check if system is paused
+    if DB.is_system_paused(user_id):
+        send_message(chat_id,
+            "🚨 <b>Система приостановлена</b>\n\n"
+            "Используйте /resume для возобновления работы.",
+            kb_main_menu()
+        )
+        return
+    
     account = DB.get_any_active_account(user_id)
     if not account:
         send_message(chat_id,
@@ -231,6 +367,7 @@ def start_comments_parsing(chat_id: int, user_id: int):
         f"📱 Аккаунт: <code>{account['phone'][:4]}***{account['phone'][-2:]}</code>",
         kb_cancel()
     )
+
 
 def handle_comments_parsing(chat_id: int, user_id: int, text: str, state: str, saved: dict) -> bool:
     """Handle comments parsing states. Returns True if handled."""
@@ -260,9 +397,26 @@ def handle_comments_parsing(chat_id: int, user_id: int, text: str, state: str, s
         elif state == 'parse_comments:only_photo':
             DB.set_user_state(user_id, 'parse_comments:only_username', saved)
             send_message(chat_id, "👤 Только с @username?", kb_parse_filter_yn())
-        elif state == 'parse_comments:confirm':
+        elif state == 'parse_comments:keyword_ask':
             DB.set_user_state(user_id, 'parse_comments:only_photo', saved)
             send_message(chat_id, "📸 Только с фото профиля?", kb_parse_filter_yn())
+        elif state == 'parse_comments:keyword_input':
+            DB.set_user_state(user_id, 'parse_comments:keyword_ask', saved)
+            send_message(chat_id,
+                "🔑 <b>Фильтр по ключевым словам</b>\n\n"
+                "Хотите собирать только тех, кто упоминал определённые слова в комментариях?",
+                kb_keyword_filter()
+            )
+        elif state == 'parse_comments:keyword_mode':
+            DB.set_user_state(user_id, 'parse_comments:keyword_input', saved)
+            send_message(chat_id, "🔑 Введите ключевые слова через запятую:", kb_back_cancel())
+        elif state == 'parse_comments:confirm':
+            DB.set_user_state(user_id, 'parse_comments:keyword_ask', saved)
+            send_message(chat_id,
+                "🔑 <b>Фильтр по ключевым словам</b>\n\n"
+                "Хотите собирать только тех, кто упоминал определённые слова?",
+                kb_keyword_filter()
+            )
         return True
     
     # State: waiting for channel
@@ -375,19 +529,72 @@ def handle_comments_parsing(chat_id: int, user_id: int, text: str, state: str, s
             return True
         
         saved['only_photo'] = (text == '✅ Да')
-        DB.set_user_state(user_id, 'parse_comments:confirm', saved)
+        DB.set_user_state(user_id, 'parse_comments:keyword_ask', saved)
         
-        pr = saved.get('post_range', {'start': 1, 'end': 20})
         send_message(chat_id,
-            f"📋 <b>Подтверждение парсинга</b>\n\n"
-            f"🔗 Канал: <b>@{saved.get('channel')}</b>\n"
-            f"📊 Посты: <b>{pr['start']}-{pr['end']}</b>\n"
-            f"📝 Мин. длина: <b>{saved.get('min_length', 0)}</b>\n"
-            f"👤 Только с username: <b>{'Да' if saved.get('only_username') else 'Нет'}</b>\n"
-            f"📸 Только с фото: <b>{'Да' if saved.get('only_photo') else 'Нет'}</b>\n\n"
-            "🚀 Запустить парсинг?",
-            kb_parse_confirm()
+            "🔑 <b>Фильтр по ключевым словам</b>\n\n"
+            "Хотите собирать только тех, кто упоминал определённые слова в комментариях?\n\n"
+            "Это полезно для сбора целевой аудитории по интересам.",
+            kb_keyword_filter()
         )
+        return True
+    
+    # State: ask about keyword filter
+    if state == 'parse_comments:keyword_ask':
+        if text == '✅ Да, добавить':
+            DB.set_user_state(user_id, 'parse_comments:keyword_input', saved)
+            send_message(chat_id,
+                "🔑 <b>Введите ключевые слова</b>\n\n"
+                "Через запятую, например:\n"
+                "<code>купить, цена, заказать, доставка</code>",
+                kb_back_cancel()
+            )
+            return True
+        
+        if text == '❌ Нет, пропустить':
+            saved['keyword_filter'] = None
+            saved['keyword_match_mode'] = None
+            _show_comments_confirm(chat_id, user_id, saved)
+            return True
+        
+        send_message(chat_id, "❌ Выберите вариант", kb_keyword_filter())
+        return True
+    
+    # State: keyword input
+    if state == 'parse_comments:keyword_input':
+        keywords = [kw.strip().lower() for kw in text.split(',') if kw.strip()]
+        
+        if not keywords:
+            send_message(chat_id, "❌ Введите хотя бы одно ключевое слово:", kb_back_cancel())
+            return True
+        
+        if len(keywords) > 50:
+            send_message(chat_id, "❌ Максимум 50 ключевых слов:", kb_back_cancel())
+            return True
+        
+        saved['keyword_filter'] = keywords
+        DB.set_user_state(user_id, 'parse_comments:keyword_mode', saved)
+        
+        send_message(chat_id,
+            f"✅ Ключевые слова ({len(keywords)}):\n"
+            f"<code>{', '.join(keywords[:10])}</code>"
+            f"{'...' if len(keywords) > 10 else ''}\n\n"
+            "🔍 <b>Режим поиска:</b>",
+            kb_keyword_match_mode()
+        )
+        return True
+    
+    # State: keyword match mode
+    if state == 'parse_comments:keyword_mode':
+        if text == '🔍 Любое слово':
+            saved['keyword_match_mode'] = 'any'
+        elif text == '🔍 Все слова':
+            saved['keyword_match_mode'] = 'all'
+        else:
+            send_message(chat_id, "❌ Выберите режим поиска", kb_keyword_match_mode())
+            return True
+        
+        _show_comments_confirm(chat_id, user_id, saved)
         return True
     
     # State: confirm
@@ -405,16 +612,25 @@ def handle_comments_parsing(chat_id: int, user_id: int, text: str, state: str, s
         }
         
         source = DB.create_audience_source(
-            user_id, 'comments', f"@{saved.get('channel', '')}", filters
+            user_id=user_id,
+            source_type='comments',
+            source_link=f"@{saved.get('channel', '')}",
+            filters=filters,
+            keyword_filter=saved.get('keyword_filter'),
+            keyword_match_mode=saved.get('keyword_match_mode', 'any')
         )
         
         DB.clear_user_state(user_id)
         
         if source:
+            kw_info = ""
+            if saved.get('keyword_filter'):
+                kw_info = f"\n🔑 Ключевые слова: {len(saved['keyword_filter'])} шт."
+            
             send_message(chat_id,
                 f"✅ <b>Задача создана!</b>\n\n"
                 f"🆔 ID: <code>{source['id']}</code>\n"
-                f"📊 Статус: ⏳ В очереди",
+                f"📊 Статус: ⏳ В очереди{kw_info}",
                 kb_main_menu()
             )
         else:
@@ -422,3 +638,32 @@ def handle_comments_parsing(chat_id: int, user_id: int, text: str, state: str, s
         return True
     
     return False
+
+
+def _show_comments_confirm(chat_id: int, user_id: int, saved: dict):
+    """Show comments parsing confirmation"""
+    DB.set_user_state(user_id, 'parse_comments:confirm', saved)
+    
+    pr = saved.get('post_range', {'start': 1, 'end': 20})
+    
+    kw_info = ""
+    if saved.get('keyword_filter'):
+        mode = 'любое' if saved.get('keyword_match_mode') == 'any' else 'все'
+        kw_info = (
+            f"\n\n🔑 <b>Ключевые слова:</b>\n"
+            f"<code>{', '.join(saved['keyword_filter'][:5])}</code>"
+            f"{'...' if len(saved['keyword_filter']) > 5 else ''}\n"
+            f"🔍 Режим: <b>{mode}</b>"
+        )
+    
+    send_message(chat_id,
+        f"📋 <b>Подтверждение парсинга</b>\n\n"
+        f"🔗 Канал: <b>@{saved.get('channel')}</b>\n"
+        f"📊 Посты: <b>{pr['start']}-{pr['end']}</b>\n"
+        f"📝 Мин. длина: <b>{saved.get('min_length', 0)}</b>\n"
+        f"👤 Только с username: <b>{'Да' if saved.get('only_username') else 'Нет'}</b>\n"
+        f"📸 Только с фото: <b>{'Да' if saved.get('only_photo') else 'Нет'}</b>"
+        f"{kw_info}\n\n"
+        "🚀 Запустить парсинг?",
+        kb_parse_confirm()
+    )
