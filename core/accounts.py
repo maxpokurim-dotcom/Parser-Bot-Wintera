@@ -1,6 +1,6 @@
 """
-Account management handlers
-Static menu version
+Account management handlers - Extended v2.0
+With limit prediction and reliability score
 """
 import re
 import logging
@@ -21,9 +21,11 @@ BTN_ACC_LIST = '📋 Список аккаунтов'
 BTN_ACC_FOLDERS = '📁 Папки'
 BTN_ACC_ADD = '➕ Добавить аккаунт'
 BTN_ACC_CREATE_FOLDER = '📁 Создать папку'
+BTN_ACC_PREDICTION = '📊 Прогноз лимитов'
 BTN_ACC_SET_LIMIT = '📊 Установить лимит'
 BTN_ACC_MOVE = '📁 Переместить'
 BTN_ACC_DELETE = '🗑 Удалить'
+BTN_ACC_FORECAST = '📈 Прогноз'
 BTN_ACC_BACK_LIST = '◀️ К списку'
 BTN_FOLDER_ACCOUNTS = '📋 Аккаунты в папке'
 BTN_FOLDER_ADD_ACC = '➕ Добавить аккаунт'
@@ -41,11 +43,28 @@ def show_accounts_menu(chat_id: int, user_id: int):
     active = DB.count_active_user_accounts(user_id)
     folders = DB.get_account_folders(user_id)
     
+    # Подсчёт доступных сообщений
+    accounts = DB.get_active_accounts(user_id)
+    total_available = sum(
+        max(0, (a.get('daily_limit', 50) or 50) - (a.get('daily_sent', 0) or 0))
+        for a in accounts
+    )
+    
+    # Средняя надёжность
+    if accounts:
+        avg_reliability = sum(a.get('reliability_score', 100) or 100 for a in accounts) / len(accounts)
+    else:
+        avg_reliability = 0
+    
+    reliability_emoji = '🟢' if avg_reliability >= 80 else '🟡' if avg_reliability >= 50 else '🔴'
+    
     send_message(chat_id,
         f"👤 <b>Аккаунты</b>\n\n"
         f"📊 Всего: <b>{total}</b>\n"
         f"✅ Активных: <b>{active}</b>\n"
-        f"📁 Папок: <b>{len(folders)}</b>",
+        f"📁 Папок: <b>{len(folders)}</b>\n\n"
+        f"💳 Доступно сообщений: <b>{total_available}</b>\n"
+        f"{reliability_emoji} Средняя надёжность: <b>{avg_reliability:.0f}%</b>",
         kb_accounts_menu()
     )
 
@@ -88,6 +107,9 @@ def handle_accounts(chat_id: int, user_id: int, text: str, state: str, saved: di
         if text == BTN_ACC_CREATE_FOLDER:
             DB.set_user_state(user_id, 'accounts:create_folder')
             send_message(chat_id, "📁 Введите название папки (макс. 50 символов):", kb_back_cancel())
+            return True
+        if text == BTN_ACC_PREDICTION or text == '📊 Прогноз лимитов':
+            show_all_accounts_prediction(chat_id, user_id)
             return True
     
     # Create folder
@@ -208,6 +230,10 @@ def handle_accounts(chat_id: int, user_id: int, text: str, state: str, saved: di
         
         if text == BTN_ACC_MOVE:
             show_move_account(chat_id, user_id, account_id)
+            return True
+        
+        if text == BTN_ACC_FORECAST or text == '📈 Прогноз':
+            show_account_prediction(chat_id, user_id, account_id)
             return True
         
         if text == BTN_ACC_DELETE:
@@ -404,7 +430,10 @@ def show_account_list(chat_id: int, user_id: int):
     else:
         kb = kb_inline_accounts(folders, accounts)
         if kb:
-            send_message(chat_id, "👤 <b>Выберите аккаунт или папку:</b>", kb)
+            send_message(chat_id, 
+                "👤 <b>Выберите аккаунт или папку:</b>\n\n"
+                "🟢 >80% | 🟡 50-80% | 🔴 <50% — надёжность", 
+                kb)
         send_message(chat_id, "👆 Выберите выше или:", kb_accounts_menu())
 
 
@@ -430,32 +459,148 @@ def show_account_view(chat_id: int, user_id: int, account_id: int):
     masked = f"{phone[:4]}***{phone[-2:]}" if len(phone) > 6 else phone
     daily_sent = account.get('daily_sent', 0) or 0
     daily_limit = account.get('daily_limit', 50) or 50
+    remaining = max(0, daily_limit - daily_sent)
     
+    # Reliability score
+    reliability = account.get('reliability_score', 100) or 100
+    rel_emoji = '🟢' if reliability >= 80 else '🟡' if reliability >= 50 else '🔴'
+    
+    # Consecutive errors
+    consecutive_errors = account.get('consecutive_errors', 0) or 0
+    errors_info = f"\n⚠️ <b>Ошибок подряд:</b> {consecutive_errors}" if consecutive_errors > 0 else ""
+    
+    # Flood wait info
     flood_info = ""
     if account.get('status') == 'flood_wait' and account.get('flood_wait_until'):
         try:
             flood_until = datetime.fromisoformat(account['flood_wait_until'].replace('Z', '+00:00'))
-            remaining = (flood_until - datetime.utcnow()).total_seconds()
-            if remaining > 0:
-                mins = int(remaining // 60)
+            remaining_seconds = (flood_until - datetime.utcnow()).total_seconds()
+            if remaining_seconds > 0:
+                mins = int(remaining_seconds // 60)
                 flood_info = f"\n⏰ <b>Разблокируется через:</b> {mins} мин"
         except:
             pass
     
+    # Folder info
     folder_info = ""
     if account.get('folder_id'):
         folder = DB.get_account_folder(account['folder_id'])
         if folder:
             folder_info = f"\n📁 <b>Папка:</b> {folder['name']}"
     
+    # Warmup status
+    warmup_info = ""
+    if account.get('is_warming_up'):
+        warmup_info = "\n🔥 <b>Прогрев:</b> в процессе"
+    elif account.get('warmup_completed'):
+        warmup_info = "\n🔥 <b>Прогрев:</b> завершён"
+    
     send_message(chat_id,
         f"👤 <b>Аккаунт #{account['id']}</b>\n\n"
         f"📱 Телефон: <code>{masked}</code>\n"
         f"📊 Статус: {status_map.get(account['status'], account['status'])}{flood_info}\n"
         f"📤 Сегодня: <b>{daily_sent}/{daily_limit}</b>\n"
-        f"💳 Доступно: <b>{max(0, daily_limit - daily_sent)}</b>{folder_info}",
+        f"💳 Доступно: <b>{remaining}</b>\n"
+        f"{rel_emoji} Надёжность: <b>{reliability:.0f}%</b>"
+        f"{errors_info}{folder_info}{warmup_info}",
         kb_account_actions()
     )
+
+
+def show_account_prediction(chat_id: int, user_id: int, account_id: int):
+    """Show account limit prediction"""
+    prediction = DB.get_account_limit_prediction(account_id)
+    
+    if prediction.get('error'):
+        send_message(chat_id, f"❌ {prediction['error']}", kb_account_actions())
+        return
+    
+    account = DB.get_account(account_id)
+    phone = account['phone'] if account else '?'
+    masked = f"{phone[:4]}***{phone[-2:]}" if len(phone) > 6 else phone
+    
+    # Status emoji
+    status = prediction.get('status', 'active')
+    status_emoji = {
+        'active': '✅',
+        'flood_wait': '⏰',
+        'blocked': '🚫',
+        'error': '❌'
+    }.get(status, '❓')
+    
+    # Reliability emoji
+    reliability = prediction.get('reliability_score', 100)
+    rel_emoji = '🟢' if reliability >= 80 else '🟡' if reliability >= 50 else '🔴'
+    
+    hours_left = prediction.get('estimated_hours_left')
+    hours_info = f"\n⏱ <b>При текущем темпе:</b> ~{hours_left:.1f} ч" if hours_left else ""
+    
+    send_message(chat_id,
+        f"📈 <b>Прогноз для аккаунта</b>\n\n"
+        f"📱 <b>Аккаунт:</b> {masked}\n"
+        f"{status_emoji} <b>Статус:</b> {status}\n"
+        f"{rel_emoji} <b>Надёжность:</b> {reliability:.0f}%\n\n"
+        f"📊 <b>Лимиты:</b>\n"
+        f"├ Дневной лимит: {prediction['daily_limit']}\n"
+        f"├ Отправлено сегодня: {prediction['daily_sent']}\n"
+        f"└ Осталось: <b>{prediction['remaining_today']}</b>\n\n"
+        f"📈 <b>Статистика:</b>\n"
+        f"├ Средняя скорость: {prediction['avg_hourly_rate']:.1f} сообщ/час"
+        f"{hours_info}\n\n"
+        f"💡 <b>Рекомендация:</b>\n"
+        f"{prediction['recommendation']}",
+        kb_account_actions()
+    )
+
+
+def show_all_accounts_prediction(chat_id: int, user_id: int):
+    """Show prediction for all accounts"""
+    accounts = DB.get_active_accounts(user_id)
+    
+    if not accounts:
+        send_message(chat_id, "❌ Нет активных аккаунтов", kb_accounts_menu())
+        return
+    
+    DB.set_user_state(user_id, 'accounts:predictions')
+    
+    total_remaining = 0
+    txt = "📈 <b>Прогноз лимитов на сегодня</b>\n\n"
+    
+    for acc in accounts[:10]:
+        phone = acc['phone']
+        masked = f"{phone[:4]}**{phone[-2:]}" if len(phone) > 6 else phone
+        
+        daily_limit = acc.get('daily_limit', 50) or 50
+        daily_sent = acc.get('daily_sent', 0) or 0
+        remaining = max(0, daily_limit - daily_sent)
+        total_remaining += remaining
+        
+        reliability = acc.get('reliability_score', 100) or 100
+        rel_emoji = '🟢' if reliability >= 80 else '🟡' if reliability >= 50 else '🔴'
+        
+        status = acc.get('status', 'active')
+        if status == 'flood_wait':
+            status_icon = '⏰'
+        elif status == 'active':
+            status_icon = '✅'
+        else:
+            status_icon = '❌'
+        
+        progress = int(daily_sent / daily_limit * 10) if daily_limit > 0 else 0
+        bar = '█' * progress + '░' * (10 - progress)
+        
+        txt += f"{status_icon}{rel_emoji} <code>{masked}</code>\n"
+        txt += f"   [{bar}] {daily_sent}/{daily_limit} (осталось: {remaining})\n\n"
+    
+    txt += f"━━━━━━━━━━━━━━━━━\n"
+    txt += f"💳 <b>Всего доступно:</b> {total_remaining} сообщений\n\n"
+    
+    # Рекомендация по времени
+    best_hours = DB.get_best_hours(user_id, limit=3)
+    if best_hours:
+        txt += f"⏰ <b>Лучшие часы:</b> {', '.join(f'{h}:00' for h in best_hours)}"
+    
+    send_message(chat_id, txt, kb_accounts_menu())
 
 
 def show_move_account(chat_id: int, user_id: int, account_id: int):
@@ -479,13 +624,20 @@ def show_folder_view(chat_id: int, user_id: int, folder_id: int):
     active = sum(1 for a in accounts if a.get('status') == 'active')
     flood = sum(1 for a in accounts if a.get('status') == 'flood_wait')
     
+    # Доступные сообщения
+    total_available = sum(
+        max(0, (a.get('daily_limit', 50) or 50) - (a.get('daily_sent', 0) or 0))
+        for a in accounts if a.get('status') == 'active'
+    )
+    
     DB.set_user_state(user_id, f'accounts:folder:{folder_id}')
     
     send_message(chat_id,
         f"📁 <b>{folder['name']}</b>\n\n"
         f"📊 Аккаунтов: <b>{len(accounts)}</b>\n"
         f"✅ Активных: <b>{active}</b>\n"
-        f"⏰ Flood wait: <b>{flood}</b>",
+        f"⏰ Flood wait: <b>{flood}</b>\n"
+        f"💳 Доступно сообщений: <b>{total_available}</b>",
         kb_acc_folder_actions()
     )
 
