@@ -1,6 +1,6 @@
 """
-Settings handlers - Extended v3.0
-With risk tolerance, AI settings, API keys, herder/factory settings
+Settings handlers - Extended v3.1
+Fixed navigation loops in Herder/Factory settings
 """
 import re
 import logging
@@ -15,7 +15,6 @@ from core.keyboards import (
     reply_keyboard
 )
 from core.menu import show_main_menu, BTN_CANCEL, BTN_BACK, BTN_MAIN_MENU
-
 logger = logging.getLogger(__name__)
 
 # Button constants - existing
@@ -42,13 +41,10 @@ BTN_STOP_WORDS = '🛡 Настроить стоп-слова'
 BTN_ADD_WORD = '➕ Добавить слово'
 BTN_LIST_WORDS = '📋 Список слов'
 
-
 def show_settings_menu(chat_id: int, user_id: int):
     """Show settings menu - Extended"""
     DB.set_user_state(user_id, 'settings:menu')
-    
     settings = DB.get_user_settings(user_id)
-    
     # Basic settings
     qs = settings.get('quiet_hours_start')
     qe = settings.get('quiet_hours_end')
@@ -59,60 +55,56 @@ def show_settings_menu(chat_id: int, user_id: int):
     cache_ttl = settings.get('mailing_cache_ttl', 30) or 30
     auto_bl = '✅' if settings.get('auto_blacklist_enabled', True) else '❌'
     warmup = '✅' if settings.get('warmup_before_mailing', False) else '❌'
-    
     # New settings
     risk = {'low': '🟢 Низкий', 'medium': '🟡 Средний', 'high': '🔴 Высокий'}.get(
         settings.get('risk_tolerance', 'medium'), '🟡 Средний')
-    
     learning = '✅' if settings.get('learning_mode', True) else '❌'
-    
     # API status
     yagpt = '✅' if settings.get('yagpt_api_key') else '❌'
     onlinesim = '✅' if settings.get('onlinesim_api_key') else '❌'
-    
     send_message(chat_id,
-        f"⚙️ <b>Настройки</b>\n\n"
+        f"⚙️ <b>Настройки</b>\n"
         f"<b>Рассылка:</b>\n"
         f"├ 🌙 Тихие часы: {quiet}\n"
         f"├ 🔔 Уведомления: {notify}\n"
         f"├ ⏱ Задержка: {delay_min}-{delay_max} сек\n"
         f"├ 🗓 Кэш: {cache_ttl} дней\n"
         f"├ 🛡 Авто-ЧС: {auto_bl}\n"
-        f"└ 🔥 Прогрев: {warmup}\n\n"
+        f"└ 🔥 Прогрев: {warmup}\n"
         f"<b>Система:</b>\n"
         f"├ ⚠️ Риск: {risk}\n"
-        f"└ 🧠 Обучение: {learning}\n\n"
+        f"└ 🧠 Обучение: {learning}\n"
         f"<b>API:</b>\n"
         f"├ 🔑 YaGPT: {yagpt}\n"
         f"└ 📱 OnlineSim: {onlinesim}",
         kb_settings_menu()
     )
 
-
 def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: dict) -> bool:
     """Handle settings states. Returns True if handled."""
-    
     if text == BTN_CANCEL:
         show_main_menu(chat_id, user_id, "❌ Действие отменено")
         return True
-    
     if text == BTN_MAIN_MENU:
         show_main_menu(chat_id, user_id)
         return True
-    
     if text == BTN_BACK or text == '◀️ Назад':
         if state == 'settings:menu':
             show_main_menu(chat_id, user_id)
+        elif state in [
+            'settings:herder', 'settings:herder:strategy', 'settings:herder:max_actions',
+            'settings:factory', 'settings:factory:warmup_days',
+            'settings:ai', 'settings:ai:temperature',
+            'settings:api_keys', 'settings:api:yagpt', 'settings:api:yagpt_folder', 'settings:api:onlinesim'
+        ]:
+            show_settings_menu(chat_id, user_id)
+            return True
         elif state == 'settings:stop_triggers':
             show_auto_blacklist(chat_id, user_id)
-        elif state.startswith('settings:herder:') or state.startswith('settings:factory:'):
-            show_settings_menu(chat_id, user_id)
-        elif state.startswith('settings:api:'):
-            show_api_keys(chat_id, user_id)
         else:
             show_settings_menu(chat_id, user_id)
         return True
-    
+
     # Menu state
     if state == 'settings:menu':
         if text == BTN_QUIET_HOURS:
@@ -149,15 +141,15 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
         if text == BTN_API_KEYS:
             show_api_keys(chat_id, user_id)
             return True
-    
+
     # Quiet hours state
     if state == 'settings:quiet_hours':
         if text == BTN_SET or text == '⏰ Установить':
             DB.set_user_state(user_id, 'settings:quiet_hours_input')
             send_message(chat_id,
-                "🌙 <b>Установка тихих часов</b>\n\n"
+                "🌙 <b>Установка тихих часов</b>\n"
                 "Введите диапазон в формате:\n"
-                "<code>23:00-08:00</code>\n\n"
+                "<code>23:00-08:00</code>\n"
                 "В это время рассылки не будут отправляться.\n"
                 "⚠️ Время в московском часовом поясе (МСК)",
                 kb_back_cancel()
@@ -168,19 +160,17 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
             send_message(chat_id, "✅ Тихие часы отключены", kb_settings_menu())
             show_settings_menu(chat_id, user_id)
             return True
-    
+
     # Quiet hours input
     if state == 'settings:quiet_hours_input':
         m = re.match(r'^(\d{1,2}):(\d{2})\s*[-—]\s*(\d{1,2}):(\d{2})$', text.strip())
         if not m:
             send_message(chat_id, "❌ Неверный формат. Пример: <code>23:00-08:00</code>", kb_back_cancel())
             return True
-        
         sh, sm, eh, em = map(int, m.groups())
         if sh > 23 or sm > 59 or eh > 23 or em > 59:
             send_message(chat_id, "❌ Неверное время", kb_back_cancel())
             return True
-        
         DB.update_user_settings(user_id,
             quiet_hours_start=f"{sh:02d}:{sm:02d}",
             quiet_hours_end=f"{eh:02d}:{em:02d}"
@@ -188,7 +178,7 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
         send_message(chat_id, f"✅ Тихие часы: {sh:02d}:{sm:02d} - {eh:02d}:{em:02d} МСК", kb_settings_menu())
         show_settings_menu(chat_id, user_id)
         return True
-    
+
     # Notifications state
     if state == 'settings:notifications':
         if text == BTN_ENABLE or text == '🔔 Включить':
@@ -201,53 +191,49 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
             send_message(chat_id, "✅ Уведомления отключены", kb_settings_menu())
             show_settings_menu(chat_id, user_id)
             return True
-    
+
     # Delay settings state
     if state == 'settings:delay':
         if text == BTN_CUSTOM_DELAY or text == '📝 Свой диапазон':
             DB.set_user_state(user_id, 'settings:delay_input')
             send_message(chat_id,
-                "⏱ <b>Своя задержка</b>\n\n"
+                "⏱ <b>Своя задержка</b>\n"
                 "Введите диапазон в формате:\n"
-                "<code>мин-макс</code>\n\n"
+                "<code>мин-макс</code>\n"
                 "Например: <code>30-90</code> (секунды)",
                 kb_back_cancel()
             )
             return True
-        
         delays = {
             '5-15 сек': (5, 15),
             '15-45 сек': (15, 45),
             '30-90 сек': (30, 90),
             '60-180 сек': (60, 180)
         }
-        
         if text in delays:
             delay_min, delay_max = delays[text]
             DB.update_user_settings(user_id, delay_min=delay_min, delay_max=delay_max)
             send_message(chat_id, f"✅ Задержка: {delay_min}-{delay_max} сек", kb_settings_menu())
             show_settings_menu(chat_id, user_id)
             return True
-    
+
     # Delay input state
     if state == 'settings:delay_input':
         m = re.match(r'^(\d+)\s*[-—]\s*(\d+)$', text.strip())
         if not m:
             send_message(chat_id, "❌ Неверный формат. Пример: <code>30-90</code>", kb_back_cancel())
             return True
-        
         delay_min, delay_max = int(m.group(1)), int(m.group(2))
         if delay_min > delay_max:
             delay_min, delay_max = delay_max, delay_min
         if delay_min < 1 or delay_max > 600:
             send_message(chat_id, "❌ Задержка от 1 до 600 секунд", kb_back_cancel())
             return True
-        
         DB.update_user_settings(user_id, delay_min=delay_min, delay_max=delay_max)
         send_message(chat_id, f"✅ Задержка: {delay_min}-{delay_max} сек", kb_settings_menu())
         show_settings_menu(chat_id, user_id)
         return True
-    
+
     # Cache TTL state
     if state == 'settings:cache_ttl':
         if text == '🔕 Отключить':
@@ -255,15 +241,13 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
             send_message(chat_id, "✅ Кэш рассылки отключён", kb_settings_menu())
             show_settings_menu(chat_id, user_id)
             return True
-        
         ttl_map = {'7 дней': 7, '14 дней': 14, '30 дней': 30, '60 дней': 60, '90 дней': 90}
-        
         if text in ttl_map:
             DB.update_user_settings(user_id, mailing_cache_ttl=ttl_map[text])
             send_message(chat_id, f"✅ Кэш: {ttl_map[text]} дней", kb_settings_menu())
             show_settings_menu(chat_id, user_id)
             return True
-    
+
     # Auto blacklist state
     if state == 'settings:auto_blacklist':
         if text == '✅ Включить':
@@ -279,15 +263,15 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
         if text == '🛡 Настроить стоп-слова':
             show_stop_triggers(chat_id, user_id)
             return True
-    
+
     # Stop triggers state
     if state == 'settings:stop_triggers':
         if text == '➕ Добавить слово':
             DB.set_user_state(user_id, 'settings:add_stop_word')
             send_message(chat_id,
-                "🛡 <b>Добавление стоп-слова</b>\n\n"
+                "🛡 <b>Добавление стоп-слова</b>\n"
                 "Введите слово или фразу.\n"
-                "При получении ответа с этим словом пользователь добавляется в ЧС.\n\n"
+                "При получении ответа с этим словом пользователь добавляется в ЧС.\n"
                 "Примеры: <code>спам</code>, <code>не пиши</code>",
                 kb_back_cancel()
             )
@@ -295,7 +279,7 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
         if text == '📋 Список слов':
             show_stop_triggers_list(chat_id, user_id)
             return True
-    
+
     # Add stop word state
     if state == 'settings:add_stop_word':
         word = text.strip().lower()
@@ -305,7 +289,6 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
         if len(word) > 100:
             send_message(chat_id, "❌ Максимум 100 символов", kb_back_cancel())
             return True
-        
         result = DB.add_stop_trigger(user_id, word)
         if result:
             send_message(chat_id, f"✅ Стоп-слово «{word}» добавлено", kb_stop_triggers_menu())
@@ -313,7 +296,7 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
             send_message(chat_id, "❌ Ошибка добавления", kb_stop_triggers_menu())
         DB.set_user_state(user_id, 'settings:stop_triggers')
         return True
-    
+
     # Warmup settings state
     if state == 'settings:warmup':
         if text == '✅ Включить прогрев':
@@ -326,7 +309,6 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
             send_message(chat_id, "✅ Прогрев отключён", kb_settings_menu())
             show_settings_menu(chat_id, user_id)
             return True
-        
         duration_map = {'⏱ 5 минут': 5, '⏱ 10 минут': 10, '⏱ 15 минут': 15}
         if text in duration_map:
             DB.update_user_settings(user_id, 
@@ -336,9 +318,8 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
             send_message(chat_id, f"✅ Прогрев: {duration_map[text]} минут", kb_settings_menu())
             show_settings_menu(chat_id, user_id)
             return True
-    
+
     # ==================== NEW SETTINGS ====================
-    
     # Risk tolerance state
     if state == 'settings:risk_tolerance':
         risk_map = {
@@ -351,50 +332,41 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
             send_message(chat_id, f"✅ Риск-толерантность: {text}", kb_settings_menu())
             show_settings_menu(chat_id, user_id)
             return True
-    
+
     # Herder settings state
     if state == 'settings:herder':
         return _handle_herder_settings(chat_id, user_id, text, saved)
-    
     if state == 'settings:herder:strategy':
         return _handle_herder_strategy(chat_id, user_id, text, saved)
-    
     if state == 'settings:herder:max_actions':
         return _handle_herder_max_actions(chat_id, user_id, text, saved)
-    
+
     # Factory settings state
     if state == 'settings:factory':
         return _handle_factory_settings(chat_id, user_id, text, saved)
-    
     if state == 'settings:factory:warmup_days':
         return _handle_factory_warmup_days(chat_id, user_id, text, saved)
-    
+
     # AI settings state
     if state == 'settings:ai':
         return _handle_ai_settings(chat_id, user_id, text, saved)
-    
     if state == 'settings:ai:temperature':
         return _handle_ai_temperature(chat_id, user_id, text, saved)
-    
+
     # API keys state
     if state == 'settings:api_keys':
         return _handle_api_keys(chat_id, user_id, text, saved)
-    
     if state == 'settings:api:yagpt':
         return _handle_api_yagpt(chat_id, user_id, text, saved)
-    
     if state == 'settings:api:yagpt_folder':
         return _handle_api_yagpt_folder(chat_id, user_id, text, saved)
-    
     if state == 'settings:api:onlinesim':
         return _handle_api_onlinesim(chat_id, user_id, text, saved)
-    
-    return False
 
+    return False
 
 def handle_settings_callback(chat_id: int, msg_id: int, user_id: int, data: str) -> bool:
     """Handle settings inline callbacks"""
-    
     # Toggle stop trigger
     if data.startswith('togstop:'):
         trigger_id = int(data.split(':')[1])
@@ -404,49 +376,39 @@ def handle_settings_callback(chat_id: int, msg_id: int, user_id: int, data: str)
             DB._update('stop_triggers', {'is_active': new_active}, {'id': trigger_id})
         show_stop_triggers_list(chat_id, user_id)
         return True
-    
     # Delete stop trigger
     if data.startswith('delstop:'):
         trigger_id = int(data.split(':')[1])
         DB.delete_stop_trigger(trigger_id)
         show_stop_triggers_list(chat_id, user_id)
         return True
-    
     return False
 
-
 # ==================== EXISTING SETTINGS VIEWS ====================
-
 def show_quiet_hours(chat_id: int, user_id: int):
     """Show quiet hours settings"""
     DB.set_user_state(user_id, 'settings:quiet_hours')
-    
     settings = DB.get_user_settings(user_id)
     qs = settings.get('quiet_hours_start')
     qe = settings.get('quiet_hours_end')
-    
     current = f"Текущие: <b>{qs} - {qe} МСК</b>" if qs and qe else "Сейчас: <b>не установлены</b>"
-    
     send_message(chat_id,
-        f"🌙 <b>Тихие часы</b>\n\n"
-        f"{current}\n\n"
-        f"В тихие часы рассылки не отправляются.\n\n"
+        f"🌙 <b>Тихие часы</b>\n"
+        f"{current}\n"
+        f"В тихие часы рассылки не отправляются.\n"
         f"⚠️ Время в московском часовом поясе (МСК)",
         kb_quiet_hours()
     )
 
-
 def show_notifications(chat_id: int, user_id: int):
     """Show notifications settings"""
     DB.set_user_state(user_id, 'settings:notifications')
-    
     settings = DB.get_user_settings(user_id)
     enabled = settings.get('notify_on_complete', True)
     status = "✅ <b>Включены</b>" if enabled else "❌ <b>Отключены</b>"
-    
     send_message(chat_id,
-        f"🔔 <b>Уведомления</b>\n\n"
-        f"Статус: {status}\n\n"
+        f"🔔 <b>Уведомления</b>\n"
+        f"Статус: {status}\n"
         f"<b>Типы уведомлений:</b>\n"
         f"• Завершение парсинга/рассылки\n"
         f"• Ошибки и проблемы\n"
@@ -455,18 +417,15 @@ def show_notifications(chat_id: int, user_id: int):
         kb_notifications()
     )
 
-
 def show_delay_settings(chat_id: int, user_id: int):
     """Show delay settings"""
     DB.set_user_state(user_id, 'settings:delay')
-    
     settings = DB.get_user_settings(user_id)
     delay_min = settings.get('delay_min', 30) or 30
     delay_max = settings.get('delay_max', 90) or 90
-    
     send_message(chat_id,
-        f"⏱ <b>Задержка между сообщениями</b>\n\n"
-        f"Текущая: <b>{delay_min}-{delay_max} сек</b>\n\n"
+        f"⏱ <b>Задержка между сообщениями</b>\n"
+        f"Текущая: <b>{delay_min}-{delay_max} сек</b>\n"
         f"⚠️ <b>Рекомендации:</b>\n"
         f"• <b>5-15</b> — быстро, риск выше\n"
         f"• <b>15-45</b> — средний вариант\n"
@@ -475,120 +434,98 @@ def show_delay_settings(chat_id: int, user_id: int):
         kb_delay_settings()
     )
 
-
 def show_cache_settings(chat_id: int, user_id: int):
     """Show cache TTL settings"""
     DB.set_user_state(user_id, 'settings:cache_ttl')
-    
     settings = DB.get_user_settings(user_id)
     ttl = settings.get('mailing_cache_ttl', 30) or 30
     status = f"<b>{ttl} дней</b>" if ttl > 0 else "<b>отключён</b>"
-    
     send_message(chat_id,
-        f"🗓 <b>Кэш рассылки</b>\n\n"
-        f"Текущий TTL: {status}\n\n"
+        f"🗓 <b>Кэш рассылки</b>\n"
+        f"Текущий TTL: {status}\n"
         f"Если пользователь получал рассылку в этот период —\n"
         f"он исключается из новых кампаний.",
         kb_cache_ttl()
     )
 
-
 def show_auto_blacklist(chat_id: int, user_id: int):
     """Show auto blacklist settings"""
     DB.set_user_state(user_id, 'settings:auto_blacklist')
-    
     settings = DB.get_user_settings(user_id)
     enabled = settings.get('auto_blacklist_enabled', True)
     triggers = DB.get_stop_triggers(user_id)
     active_count = sum(1 for t in triggers if t.get('is_active'))
-    
     status = "✅ <b>Включена</b>" if enabled else "❌ <b>Отключена</b>"
-    
     send_message(chat_id,
-        f"🛡 <b>Авто-блокировка</b>\n\n"
+        f"🛡 <b>Авто-блокировка</b>\n"
         f"Статус: {status}\n"
-        f"Стоп-слов: <b>{active_count}</b>\n\n"
+        f"Стоп-слов: <b>{active_count}</b>\n"
         f"При ответе со стоп-словом пользователь\n"
         f"автоматически добавляется в ЧС.",
         kb_auto_blacklist()
     )
 
-
 def show_stop_triggers(chat_id: int, user_id: int):
     """Show stop triggers menu"""
     DB.set_user_state(user_id, 'settings:stop_triggers')
-    
     triggers = DB.get_stop_triggers(user_id)
     active = sum(1 for t in triggers if t.get('is_active'))
     total_hits = sum(t.get('hits_count', 0) or 0 for t in triggers)
-    
     send_message(chat_id,
-        f"🛡 <b>Стоп-слова</b>\n\n"
+        f"🛡 <b>Стоп-слова</b>\n"
         f"Всего: <b>{len(triggers)}</b>\n"
         f"Активных: <b>{active}</b>\n"
         f"Срабатываний: <b>{total_hits}</b>",
         kb_stop_triggers_menu()
     )
 
-
 def show_stop_triggers_list(chat_id: int, user_id: int):
     """Show list of stop triggers"""
     triggers = DB.get_stop_triggers(user_id)
-    
     if not triggers:
         send_message(chat_id,
-            "🛡 <b>Стоп-слова</b>\n\nСписок пуст.",
+            "🛡 <b>Стоп-слова</b>\nСписок пуст.",
             kb_stop_triggers_menu()
         )
     else:
         send_message(chat_id,
-            f"🛡 <b>Стоп-слова ({len(triggers)}):</b>\n\n"
+            f"🛡 <b>Стоп-слова ({len(triggers)}):</b>\n"
             f"✅ — активно, ❌ — отключено",
             kb_inline_stop_triggers(triggers)
         )
         send_message(chat_id, "👆 Нажмите для управления", kb_stop_triggers_menu())
 
-
 def show_warmup_settings(chat_id: int, user_id: int):
     """Show warmup settings"""
     DB.set_user_state(user_id, 'settings:warmup')
-    
     settings = DB.get_user_settings(user_id)
     enabled = settings.get('warmup_before_mailing', False)
     duration = settings.get('warmup_duration_minutes', 5) or 5
-    
     status = f"✅ <b>{duration} мин</b>" if enabled else "❌ <b>Отключён</b>"
-    
     send_message(chat_id,
-        f"🔥 <b>Прогрев перед рассылкой</b>\n\n"
-        f"Статус: {status}\n\n"
+        f"🔥 <b>Прогрев перед рассылкой</b>\n"
+        f"Статус: {status}\n"
         f"Аккаунты «прогреваются» перед рассылкой:\n"
         f"читают сообщения, имитируют активность.",
         kb_warmup_settings()
     )
 
-
 # ==================== NEW SETTINGS VIEWS ====================
-
 def show_risk_tolerance(chat_id: int, user_id: int):
     """Show risk tolerance settings"""
     DB.set_user_state(user_id, 'settings:risk_tolerance')
-    
     settings = DB.get_user_settings(user_id)
     current = settings.get('risk_tolerance', 'medium')
-    
     levels = {
         'low': ('🟢', 'Низкий', 'Максимальная безопасность, большие задержки'),
         'medium': ('🟡', 'Средний', 'Баланс скорости и безопасности'),
         'high': ('🔴', 'Высокий', 'Агрессивная работа, риск блокировок')
     }
-    
     emoji, name, desc = levels.get(current, levels['medium'])
-    
     send_message(chat_id,
-        f"⚠️ <b>Риск-толерантность</b>\n\n"
+        f"⚠️ <b>Риск-толерантность</b>\n"
         f"Текущий: {emoji} <b>{name}</b>\n"
-        f"<i>{desc}</i>\n\n"
+        f"<i>{desc}</i>\n"
         f"<b>Влияет на:</b>\n"
         f"• Задержки между сообщениями\n"
         f"• Количество действий в час\n"
@@ -597,14 +534,11 @@ def show_risk_tolerance(chat_id: int, user_id: int):
         kb_risk_tolerance()
     )
 
-
 def show_herder_settings(chat_id: int, user_id: int):
     """Show herder (botovod) settings"""
     DB.set_user_state(user_id, 'settings:herder', {})
-    
     settings = DB.get_user_settings(user_id)
     herder = settings.get('herder_settings', {})
-    
     strategy_names = {
         'observer': '📖 Наблюдатель',
         'expert': '🧠 Эксперт',
@@ -612,15 +546,13 @@ def show_herder_settings(chat_id: int, user_id: int):
         'trendsetter': '🔥 Трендсеттер',
         'community': '👥 Комьюнити'
     }
-    
     strategy = strategy_names.get(herder.get('default_strategy', 'observer'), '📖 Наблюдатель')
     max_actions = herder.get('max_actions_per_account', 50)
     coordinate = '✅' if herder.get('coordinate_discussions') else '❌'
     seasonal = '✅' if herder.get('seasonal_behavior', True) else '❌'
     quiet_threshold = herder.get('quiet_mode_threshold', 100)
-    
     send_message(chat_id,
-        f"🤖 <b>Настройки Ботовода</b>\n\n"
+        f"🤖 <b>Настройки Ботовода</b>\n"
         f"🎯 Стратегия: <b>{strategy}</b>\n"
         f"📊 Макс. действий/аккаунт: <b>{max_actions}</b>\n"
         f"🗣 Координация обсуждений: {coordinate}\n"
@@ -634,14 +566,12 @@ def show_herder_settings(chat_id: int, user_id: int):
         ])
     )
 
-
 def _handle_herder_settings(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle herder settings"""
     settings = DB.get_user_settings(user_id)
     herder = settings.get('herder_settings', {})
-    
     if text == '🎯 Стратегия по умолчанию':
-        DB.set_user_state(user_id, 'settings:herder:strategy', saved)
+        DB.set_user_state(user_id, 'settings:herder:strategy', {})
         send_message(chat_id, "Выберите стратегию по умолчанию:",
             reply_keyboard([
                 ['📖 Наблюдатель', '🧠 Эксперт'],
@@ -651,9 +581,8 @@ def _handle_herder_settings(chat_id: int, user_id: int, text: str, saved: dict) 
             ])
         )
         return True
-    
     if text == '📊 Лимит действий':
-        DB.set_user_state(user_id, 'settings:herder:max_actions', saved)
+        DB.set_user_state(user_id, 'settings:herder:max_actions', {})
         send_message(chat_id,
             "Максимум действий на аккаунт в день:",
             reply_keyboard([
@@ -663,7 +592,6 @@ def _handle_herder_settings(chat_id: int, user_id: int, text: str, saved: dict) 
             ])
         )
         return True
-    
     if text == '🗣 Координация':
         herder['coordinate_discussions'] = not herder.get('coordinate_discussions', False)
         DB.update_user_settings(user_id, herder_settings=herder)
@@ -671,7 +599,6 @@ def _handle_herder_settings(chat_id: int, user_id: int, text: str, saved: dict) 
         send_message(chat_id, f"Координация обсуждений: {status}", kb_settings_menu())
         show_herder_settings(chat_id, user_id)
         return True
-    
     if text == '🌙 Сезонное поведение':
         herder['seasonal_behavior'] = not herder.get('seasonal_behavior', True)
         DB.update_user_settings(user_id, herder_settings=herder)
@@ -679,7 +606,6 @@ def _handle_herder_settings(chat_id: int, user_id: int, text: str, saved: dict) 
         send_message(chat_id, f"Сезонное поведение: {status}", kb_settings_menu())
         show_herder_settings(chat_id, user_id)
         return True
-    
     if text == '🔇 Тихий режим':
         send_message(chat_id,
             "Порог подписчиков для тихого режима:\n"
@@ -690,25 +616,9 @@ def _handle_herder_settings(chat_id: int, user_id: int, text: str, saved: dict) 
                 ['◀️ Назад']
             ])
         )
-        saved['setting'] = 'quiet_threshold'
-        DB.set_user_state(user_id, 'settings:herder', saved)
+        DB.set_user_state(user_id, 'settings:herder:quiet_threshold', {})
         return True
-    
-    # Handle quiet threshold input
-    if saved.get('setting') == 'quiet_threshold':
-        try:
-            threshold = int(text)
-            herder['quiet_mode_threshold'] = threshold
-            DB.update_user_settings(user_id, herder_settings=herder)
-            send_message(chat_id, f"✅ Порог тихого режима: {threshold} подписчиков", kb_settings_menu())
-            saved.pop('setting', None)
-            show_herder_settings(chat_id, user_id)
-            return True
-        except:
-            pass
-    
     return False
-
 
 def _handle_herder_strategy(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle herder strategy selection"""
@@ -719,7 +629,6 @@ def _handle_herder_strategy(chat_id: int, user_id: int, text: str, saved: dict) 
         '🔥 Трендсеттер': 'trendsetter',
         '👥 Комьюнити': 'community'
     }
-    
     if text in strategy_map:
         settings = DB.get_user_settings(user_id)
         herder = settings.get('herder_settings', {})
@@ -728,9 +637,10 @@ def _handle_herder_strategy(chat_id: int, user_id: int, text: str, saved: dict) 
         send_message(chat_id, f"✅ Стратегия: {text}", kb_settings_menu())
         show_herder_settings(chat_id, user_id)
         return True
-    
+    if text == '◀️ Назад':
+        show_herder_settings(chat_id, user_id)
+        return True
     return False
-
 
 def _handle_herder_max_actions(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle herder max actions"""
@@ -739,7 +649,6 @@ def _handle_herder_max_actions(chat_id: int, user_id: int, text: str, saved: dic
         if max_actions < 10 or max_actions > 200:
             send_message(chat_id, "❌ Введите число от 10 до 200", kb_back_cancel())
             return True
-        
         settings = DB.get_user_settings(user_id)
         herder = settings.get('herder_settings', {})
         herder['max_actions_per_account'] = max_actions
@@ -750,19 +659,30 @@ def _handle_herder_max_actions(chat_id: int, user_id: int, text: str, saved: dic
     except:
         return False
 
+def _handle_herder_quiet_threshold(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle quiet threshold input"""
+    try:
+        threshold = int(text)
+        settings = DB.get_user_settings(user_id)
+        herder = settings.get('herder_settings', {})
+        herder['quiet_mode_threshold'] = threshold
+        DB.update_user_settings(user_id, herder_settings=herder)
+        send_message(chat_id, f"✅ Порог тихого режима: {threshold} подписчиков", kb_settings_menu())
+        show_herder_settings(chat_id, user_id)
+        return True
+    except:
+        send_message(chat_id, "❌ Введите число", kb_back_cancel())
+        return True
 
 def show_factory_settings(chat_id: int, user_id: int):
     """Show factory settings"""
     DB.set_user_state(user_id, 'settings:factory', {})
-    
     settings = DB.get_user_settings(user_id)
     factory = settings.get('factory_settings', {})
-    
     warmup_days = factory.get('default_warmup_days', 5)
     auto_proxy = '✅' if factory.get('auto_proxy_assignment', True) else '❌'
-    
     send_message(chat_id,
-        f"🏭 <b>Настройки Фабрики</b>\n\n"
+        f"🏭 <b>Настройки Фабрики</b>\n"
         f"📅 Прогрев по умолчанию: <b>{warmup_days} дней</b>\n"
         f"🌐 Авто-назначение прокси: {auto_proxy}",
         reply_keyboard([
@@ -772,11 +692,10 @@ def show_factory_settings(chat_id: int, user_id: int):
         ])
     )
 
-
 def _handle_factory_settings(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle factory settings"""
     if text == '📅 Длительность прогрева':
-        DB.set_user_state(user_id, 'settings:factory:warmup_days', saved)
+        DB.set_user_state(user_id, 'settings:factory:warmup_days', {})
         send_message(chat_id,
             "Длительность прогрева по умолчанию:",
             reply_keyboard([
@@ -786,7 +705,6 @@ def _handle_factory_settings(chat_id: int, user_id: int, text: str, saved: dict)
             ])
         )
         return True
-    
     if text == '🌐 Авто-прокси':
         settings = DB.get_user_settings(user_id)
         factory = settings.get('factory_settings', {})
@@ -796,14 +714,11 @@ def _handle_factory_settings(chat_id: int, user_id: int, text: str, saved: dict)
         send_message(chat_id, f"Авто-назначение прокси: {status}", kb_settings_menu())
         show_factory_settings(chat_id, user_id)
         return True
-    
     return False
-
 
 def _handle_factory_warmup_days(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle factory warmup days"""
     days_map = {'3 дня': 3, '5 дней': 5, '7 дней': 7, '14 дней': 14}
-    
     if text in days_map:
         settings = DB.get_user_settings(user_id)
         factory = settings.get('factory_settings', {})
@@ -812,27 +727,24 @@ def _handle_factory_warmup_days(chat_id: int, user_id: int, text: str, saved: di
         send_message(chat_id, f"✅ Прогрев: {text}", kb_settings_menu())
         show_factory_settings(chat_id, user_id)
         return True
-    
+    if text == '◀️ Назад':
+        show_factory_settings(chat_id, user_id)
+        return True
     return False
-
 
 def show_ai_settings(chat_id: int, user_id: int):
     """Show AI and learning settings"""
     DB.set_user_state(user_id, 'settings:ai', {})
-    
     settings = DB.get_user_settings(user_id)
-    
     learning = '✅ Вкл' if settings.get('learning_mode', True) else '❌ Выкл'
     auto_recovery = '✅ Вкл' if settings.get('auto_recovery_mode', True) else '❌ Выкл'
     temperature = settings.get('gpt_temperature', 0.7)
-    
     knowledge = DB.get_herder_knowledge_stats(user_id)
-    
     send_message(chat_id,
-        f"🧠 <b>ИИ и обучение</b>\n\n"
+        f"🧠 <b>ИИ и обучение</b>\n"
         f"📚 Режим обучения: {learning}\n"
         f"🔄 Авто-восстановление: {auto_recovery}\n"
-        f"🌡 Температура GPT: <b>{temperature}</b>\n\n"
+        f"🌡 Температура GPT: <b>{temperature}</b>\n"
         f"<b>База знаний:</b>\n"
         f"├ Плохих фраз: {knowledge.get('bad_phrases', 0)}\n"
         f"├ Хороших паттернов: {knowledge.get('good_patterns', 0)}\n"
@@ -845,7 +757,6 @@ def show_ai_settings(chat_id: int, user_id: int):
         ])
     )
 
-
 def _handle_ai_settings(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle AI settings"""
     if text == '📚 Режим обучения':
@@ -856,7 +767,6 @@ def _handle_ai_settings(chat_id: int, user_id: int, text: str, saved: dict) -> b
         send_message(chat_id, f"Режим обучения: {status}", kb_settings_menu())
         show_ai_settings(chat_id, user_id)
         return True
-    
     if text == '🔄 Авто-восстановление':
         settings = DB.get_user_settings(user_id)
         current = settings.get('auto_recovery_mode', True)
@@ -865,11 +775,10 @@ def _handle_ai_settings(chat_id: int, user_id: int, text: str, saved: dict) -> b
         send_message(chat_id, f"Авто-восстановление: {status}", kb_settings_menu())
         show_ai_settings(chat_id, user_id)
         return True
-    
     if text == '🌡 Температура GPT':
-        DB.set_user_state(user_id, 'settings:ai:temperature', saved)
+        DB.set_user_state(user_id, 'settings:ai:temperature', {})
         send_message(chat_id,
-            "🌡 <b>Температура GPT</b>\n\n"
+            "🌡 <b>Температура GPT</b>\n"
             "Влияет на креативность генерации:\n"
             "• 0.3 — точный, предсказуемый\n"
             "• 0.7 — баланс\n"
@@ -877,15 +786,12 @@ def _handle_ai_settings(chat_id: int, user_id: int, text: str, saved: dict) -> b
             kb_gpt_temperature()
         )
         return True
-    
     if text == '🗑 Очистить базу знаний':
         DB.clear_herder_knowledge(user_id)
         send_message(chat_id, "✅ База знаний очищена", kb_settings_menu())
         show_ai_settings(chat_id, user_id)
         return True
-    
     return False
-
 
 def _handle_ai_temperature(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle AI temperature setting"""
@@ -896,144 +802,121 @@ def _handle_ai_temperature(chat_id: int, user_id: int, text: str, saved: dict) -
         '0.9': 0.9,
         '1.0 (креативный)': 1.0
     }
-    
     if text in temp_map:
         DB.update_user_settings(user_id, gpt_temperature=temp_map[text])
         send_message(chat_id, f"✅ Температура GPT: {temp_map[text]}", kb_settings_menu())
         show_ai_settings(chat_id, user_id)
         return True
-    
+    if text == '◀️ Назад':
+        show_ai_settings(chat_id, user_id)
+        return True
     return False
-
 
 def show_api_keys(chat_id: int, user_id: int):
     """Show API keys settings"""
     DB.set_user_state(user_id, 'settings:api_keys', {})
-    
     settings = DB.get_user_settings(user_id)
-    
     yagpt_key = settings.get('yagpt_api_key')
     yagpt_status = '✅ Настроен' if yagpt_key else '❌ Не настроен'
     yagpt_preview = f"...{yagpt_key[-8:]}" if yagpt_key and len(yagpt_key) > 8 else ''
-    
     onlinesim_key = settings.get('onlinesim_api_key')
     onlinesim_status = '✅ Настроен' if onlinesim_key else '❌ Не настроен'
-    
     send_message(chat_id,
-        f"🔑 <b>API ключи</b>\n\n"
+        f"🔑 <b>API ключи</b>\n"
         f"<b>Yandex GPT:</b> {yagpt_status}\n"
         f"   Для генерации комментариев и контента\n"
-        f"   {f'Ключ: {yagpt_preview}' if yagpt_preview else ''}\n\n"
+        f"   {f'Ключ: {yagpt_preview}' if yagpt_preview else ''}\n"
         f"<b>OnlineSim:</b> {onlinesim_status}\n"
-        f"   Для автоматического создания аккаунтов\n\n"
+        f"   Для автоматического создания аккаунтов\n"
         f"<b>Прокси:</b> (в разработке)",
         kb_api_keys()
     )
 
-
 def _handle_api_keys(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle API keys menu"""
     if text == '🔑 Yandex GPT':
-        DB.set_user_state(user_id, 'settings:api:yagpt', saved)
+        DB.set_user_state(user_id, 'settings:api:yagpt', {})
         send_message(chat_id,
-            "🔑 <b>Настройка Yandex GPT</b>\n\n"
-            "Введите API ключ от Yandex Cloud:\n\n"
+            "🔑 <b>Настройка Yandex GPT</b>\n"
+            "Введите API ключ от Yandex Cloud:\n"
             "Получить: https://console.cloud.yandex.ru/\n"
-            "Раздел: API Keys\n\n"
+            "Раздел: API Keys\n"
             "⚠️ Ключ сохраняется безопасно",
             kb_back_cancel()
         )
         return True
-    
     if text == '📱 OnlineSim':
-        DB.set_user_state(user_id, 'settings:api:onlinesim', saved)
+        DB.set_user_state(user_id, 'settings:api:onlinesim', {})
         send_message(chat_id,
-            "📱 <b>Настройка OnlineSim</b>\n\n"
-            "Введите API ключ от onlinesim.io:\n\n"
-            "Получить: https://onlinesim.io/api\n\n"
+            "📱 <b>Настройка OnlineSim</b>\n"
+            "Введите API ключ от onlinesim.io:\n"
+            "Получить: https://onlinesim.io/api\n"
             "⚠️ Используется для автоматического получения номеров",
             kb_back_cancel()
         )
         return True
-    
     if text == '🌐 Прокси':
         send_message(chat_id,
-            "🌐 <b>Прокси</b>\n\n"
-            "Функция управления прокси в разработке.\n\n"
+            "🌐 <b>Прокси</b>\n"
+            "Функция управления прокси в разработке.\n"
             "Пока вы можете добавлять прокси вручную\n"
             "при создании аккаунтов.",
             kb_api_keys()
         )
         return True
-    
     return False
-
 
 def _handle_api_yagpt(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle YaGPT API key input"""
     api_key = text.strip()
-    
     if len(api_key) < 10:
         send_message(chat_id, "❌ Неверный формат ключа", kb_back_cancel())
         return True
-    
-    saved['yagpt_key'] = api_key
-    DB.set_user_state(user_id, 'settings:api:yagpt_folder', saved)
-    
+    DB.set_user_state(user_id, 'settings:api:yagpt_folder', {'yagpt_key': api_key})
     send_message(chat_id,
-        "✅ API ключ принят!\n\n"
-        "Теперь введите <b>Folder ID</b> из Yandex Cloud:\n\n"
+        "✅ API ключ принят!\n"
+        "Теперь введите <b>Folder ID</b> из Yandex Cloud:\n"
         "Найти: https://console.cloud.yandex.ru/\n"
         "Раздел: Каталог → ID",
         kb_back_cancel()
     )
     return True
 
-
 def _handle_api_yagpt_folder(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle YaGPT folder ID input"""
     folder_id = text.strip()
-    
     if len(folder_id) < 10:
         send_message(chat_id, "❌ Неверный формат Folder ID", kb_back_cancel())
         return True
-    
     # Save both
     DB.update_user_settings(user_id, 
         yagpt_api_key=saved.get('yagpt_key'),
         yagpt_folder_id=folder_id
     )
-    
     send_message(chat_id,
-        "✅ <b>Yandex GPT настроен!</b>\n\n"
+        "✅ <b>Yandex GPT настроен!</b>\n"
         "Теперь доступны:\n"
         "• Генерация комментариев в Ботоводе\n"
         "• Генерация постов в Контент-менеджере\n"
         "• Анализ трендов и эмоций",
         kb_api_keys()
     )
-    
     show_api_keys(chat_id, user_id)
     return True
-
 
 def _handle_api_onlinesim(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle OnlineSim API key input"""
     api_key = text.strip()
-    
     if len(api_key) < 10:
         send_message(chat_id, "❌ Неверный формат ключа", kb_back_cancel())
         return True
-    
     DB.update_user_settings(user_id, onlinesim_api_key=api_key)
-    
     send_message(chat_id,
-        "✅ <b>OnlineSim настроен!</b>\n\n"
+        "✅ <b>OnlineSim настроен!</b>\n"
         "Теперь доступно:\n"
         "• Автоматическое создание аккаунтов\n"
         "• Получение номеров из разных стран",
         kb_api_keys()
     )
-    
     show_api_keys(chat_id, user_id)
     return True
