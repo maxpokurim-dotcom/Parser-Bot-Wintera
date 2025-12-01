@@ -1,6 +1,6 @@
 """
 Keyboard builders - Reply keyboards (static menu) + Inline for lists
-Extended v2.0 with new features - FIXED HTML parsing
+Extended v3.0 with Herder, Factory, Content, Analytics
 """
 from typing import List, Dict, Optional
 
@@ -21,15 +21,22 @@ def remove_keyboard() -> dict:
     return {'remove_keyboard': True}
 
 
+def inline_keyboard(buttons: List[List[dict]]) -> dict:
+    """Create inline keyboard"""
+    return {'inline_keyboard': buttons}
+
+
 # ==================== MAIN MENU ====================
 
 def kb_main_menu():
-    """Main menu keyboard"""
+    """Main menu keyboard - Extended"""
     return reply_keyboard([
         ['🔍 Парсинг чатов', '💬 Комментарии'],
         ['📊 Аудитории', '📄 Шаблоны'],
         ['👤 Аккаунты', '📤 Рассылка'],
-        ['📈 Статистика', '⚙️ Настройки']
+        ['🤖 Ботовод', '🏭 Фабрика'],
+        ['📝 Контент', '📈 Аналитика'],
+        ['⚙️ Настройки']
     ])
 
 
@@ -48,10 +55,23 @@ def kb_back_cancel():
     return reply_keyboard([['◀️ Назад', '❌ Отмена']])
 
 
+def kb_back_main():
+    """Back to main menu"""
+    return reply_keyboard([['◀️ Главное меню']])
+
+
 def kb_yes_no():
     """Yes/No buttons"""
     return reply_keyboard([
         ['✅ Да', '❌ Нет'],
+        ['◀️ Назад']
+    ])
+
+
+def kb_confirm():
+    """Confirm buttons"""
+    return reply_keyboard([
+        ['✅ Подтвердить', '❌ Отмена'],
         ['◀️ Назад']
     ])
 
@@ -61,6 +81,14 @@ def kb_confirm_delete():
     return reply_keyboard([
         ['🗑 Да, удалить', '❌ Отмена'],
         ['◀️ Назад']
+    ])
+
+
+def kb_skip():
+    """Skip button"""
+    return reply_keyboard([
+        ['⏭ Пропустить'],
+        ['◀️ Назад', '❌ Отмена']
     ])
 
 
@@ -206,7 +234,7 @@ def kb_accounts_menu():
     return reply_keyboard([
         ['📋 Список аккаунтов', '📁 Папки'],
         ['➕ Добавить аккаунт', '📁 Создать папку'],
-        ['📊 Прогноз лимитов'],
+        ['📊 Прогноз лимитов', '🧠 Профили'],
         ['◀️ Главное меню']
     ])
 
@@ -215,7 +243,8 @@ def kb_account_actions():
     """Actions for selected account"""
     return reply_keyboard([
         ['📊 Установить лимит', '📁 Переместить'],
-        ['📈 Прогноз', '🗑 Удалить'],
+        ['🧠 Профиль', '📈 Прогноз'],
+        ['🗑 Удалить'],
         ['◀️ К списку', '◀️ Главное меню']
     ])
 
@@ -239,6 +268,16 @@ def kb_acc_folder_actions():
     ])
 
 
+def kb_account_role():
+    """Account role selection"""
+    return reply_keyboard([
+        ['📖 Наблюдатель', '🧠 Эксперт'],
+        ['💪 Поддержка', '🔥 Трендсеттер'],
+        ['🎲 Случайная роль'],
+        ['◀️ Назад']
+    ])
+
+
 # ==================== MAILING KEYBOARDS ====================
 
 def kb_mailing_menu():
@@ -255,8 +294,19 @@ def kb_mailing_confirm():
     """Confirm mailing"""
     return reply_keyboard([
         ['🚀 Запустить сейчас', '📅 Отложить'],
+        ['🎯 Оптимальное время'],
         ['⚙️ Настройки рассылки'],
         ['❌ Отмена']
+    ])
+
+
+def kb_mailing_time():
+    """Mailing time selection"""
+    return reply_keyboard([
+        ['🚀 Сейчас'],
+        ['📅 Выбрать дату и время'],
+        ['🎯 Оптимальное время'],
+        ['◀️ Назад', '❌ Отмена']
     ])
 
 
@@ -310,26 +360,287 @@ def kb_schedule_repeat():
     ])
 
 
-# ==================== STATS KEYBOARDS ====================
+# ==================== HERDER (БОТОВОД) KEYBOARDS ====================
 
-def kb_stats_menu():
-    """Statistics menu"""
+def kb_herder_menu():
+    """Herder main menu"""
     return reply_keyboard([
-        ['📉 Ошибки за 7 дней', '🏆 Топ аудиторий'],
-        ['📊 Активные рассылки', '⏰ Статистика по часам'],
-        ['🛡 Негативные ответы'],
+        ['➕ Новое задание'],
+        ['📋 Мои задания', '📊 Статистика'],
+        ['👥 Аккаунты', '🧠 Профили ИИ'],
+        ['🎯 Стратегии', '⚙️ Настройки'],
         ['◀️ Главное меню']
+    ])
+
+
+def kb_herder_assignment_actions(status: str):
+    """Actions for herder assignment"""
+    buttons = []
+    if status == 'active':
+        buttons.append(['⏸ Приостановить'])
+    elif status == 'paused':
+        buttons.append(['▶️ Возобновить'])
+    if status in ['active', 'paused']:
+        buttons.append(['🛑 Остановить'])
+    buttons.append(['✏️ Редактировать', '📊 Логи'])
+    buttons.append(['🗑 Удалить'])
+    buttons.append(['◀️ К списку', '◀️ Главное меню'])
+    return reply_keyboard(buttons)
+
+
+def kb_herder_strategy():
+    """Strategy selection"""
+    return reply_keyboard([
+        ['📖 Наблюдатель', '🧠 Эксперт'],
+        ['💪 Поддержка', '🔥 Трендсеттер'],
+        ['👥 Комьюнити'],
+        ['◀️ Назад', '❌ Отмена']
+    ])
+
+
+def kb_herder_actions_constructor():
+    """Actions constructor"""
+    return reply_keyboard([
+        ['📖 Чтение', '👍 Реакция'],
+        ['💬 Комментарий', '💾 Сохранение'],
+        ['✅ Готово'],
+        ['◀️ Назад', '❌ Отмена']
+    ])
+
+
+def kb_herder_reactions():
+    """Reaction selection"""
+    return reply_keyboard([
+        ['👍', '❤️', '🔥'],
+        ['😢', '😡', '🤔'],
+        ['🎉', '👏', '🤝'],
+        ['✅ Готово'],
+        ['◀️ Назад']
+    ])
+
+
+def kb_herder_priority():
+    """Priority selection"""
+    return reply_keyboard([
+        ['🔽 Низкий', '➖ Средний', '🔼 Высокий'],
+        ['◀️ Назад', '❌ Отмена']
+    ])
+
+
+def kb_herder_comments_limit():
+    """Comments per day limit"""
+    return reply_keyboard([
+        ['1', '2', '3'],
+        ['5', '🚫 Без комментариев'],
+        ['◀️ Назад', '❌ Отмена']
+    ])
+
+
+def kb_herder_delay():
+    """Delay after post selection"""
+    return reply_keyboard([
+        ['5-60 мин', '30-180 мин'],
+        ['60-360 мин', '📝 Свой'],
+        ['◀️ Назад', '❌ Отмена']
+    ])
+
+
+def kb_herder_profiles_menu():
+    """Profiles management menu"""
+    return reply_keyboard([
+        ['📋 Список профилей'],
+        ['➕ Создать профиль', '🎲 Сгенерировать'],
+        ['📊 Эффективность'],
+        ['◀️ Назад']
+    ])
+
+
+def kb_herder_profile_actions():
+    """Profile actions"""
+    return reply_keyboard([
+        ['✏️ Редактировать', '🎲 Перегенерировать'],
+        ['🗑 Удалить'],
+        ['◀️ К списку']
+    ])
+
+
+def kb_herder_settings():
+    """Herder settings"""
+    return reply_keyboard([
+        ['🎯 Стратегия по умолчанию'],
+        ['📊 Лимит действий', '🗣 Координация'],
+        ['🌙 Сезонное поведение', '🔇 Тихий режим'],
+        ['◀️ Назад']
+    ])
+
+
+# ==================== FACTORY KEYBOARDS ====================
+
+def kb_factory_menu():
+    """Factory main menu"""
+    return reply_keyboard([
+        ['➕ Добавить вручную'],
+        ['🤖 Авто-создание'],
+        ['🔥 Прогрев аккаунтов'],
+        ['📋 Очередь создания', '📊 Статус'],
+        ['⚙️ Настройки фабрики'],
+        ['◀️ Главное меню']
+    ])
+
+
+def kb_factory_auto_count():
+    """Auto-creation count"""
+    return reply_keyboard([
+        ['5', '10', '20'],
+        ['50', '📝 Своё количество'],
+        ['◀️ Назад', '❌ Отмена']
+    ])
+
+
+def kb_factory_country():
+    """Country selection"""
+    return reply_keyboard([
+        ['🇷🇺 Россия', '🇺🇦 Украина'],
+        ['🇰🇿 Казахстан', '🇧🇾 Беларусь'],
+        ['🌍 Другая'],
+        ['◀️ Назад', '❌ Отмена']
+    ])
+
+
+def kb_factory_warmup_days():
+    """Warmup days selection"""
+    return reply_keyboard([
+        ['3 дня', '5 дней', '7 дней'],
+        ['14 дней', '🚫 Без прогрева'],
+        ['◀️ Назад', '❌ Отмена']
+    ])
+
+
+def kb_factory_task_actions():
+    """Factory task actions"""
+    return reply_keyboard([
+        ['🔄 Обновить статус'],
+        ['🛑 Отменить', '🗑 Удалить'],
+        ['◀️ К списку']
+    ])
+
+
+def kb_warmup_menu():
+    """Warmup management menu"""
+    return reply_keyboard([
+        ['📊 Статус прогрева'],
+        ['▶️ Запустить для всех', '⏸ Приостановить'],
+        ['⚙️ Настройки прогрева'],
+        ['◀️ Назад']
+    ])
+
+
+# ==================== CONTENT KEYBOARDS ====================
+
+def kb_content_menu():
+    """Content manager menu"""
+    return reply_keyboard([
+        ['✍️ Генерация постов'],
+        ['📊 Анализ трендов', '💬 Итоги обсуждений'],
+        ['📄 Шаблоны (авто)', '📅 Контент-план'],
+        ['🔗 Мои каналы'],
+        ['◀️ Главное меню']
+    ])
+
+
+def kb_content_style():
+    """Content style selection"""
+    return reply_keyboard([
+        ['📚 Информативный', '🎭 Развлекательный'],
+        ['💰 Продающий', '🎓 Экспертный'],
+        ['◀️ Назад', '❌ Отмена']
+    ])
+
+
+def kb_content_length():
+    """Content length selection"""
+    return reply_keyboard([
+        ['📝 Короткий', '📄 Средний', '📰 Длинный'],
+        ['◀️ Назад', '❌ Отмена']
+    ])
+
+
+def kb_content_actions():
+    """Generated content actions"""
+    return reply_keyboard([
+        ['✏️ Редактировать', '🔄 Другой вариант'],
+        ['📤 В канал', '💾 Сохранить'],
+        ['❌ Отмена']
+    ])
+
+
+def kb_content_channels_menu():
+    """User channels menu"""
+    return reply_keyboard([
+        ['➕ Добавить канал', '📋 Список каналов'],
+        ['◀️ Назад']
+    ])
+
+
+def kb_content_channel_actions():
+    """Channel actions"""
+    return reply_keyboard([
+        ['📊 Аналитика', '📤 Публикация'],
+        ['✏️ Редактировать', '🗑 Удалить'],
+        ['◀️ К списку']
+    ])
+
+
+# ==================== ANALYTICS KEYBOARDS ====================
+
+def kb_analytics_menu():
+    """Analytics menu"""
+    return reply_keyboard([
+        ['🔥 Heatmap активности'],
+        ['⚠️ Прогноз рисков', '📊 Сегментация'],
+        ['📈 Эффективность', '🧠 Обучение системы'],
+        ['◀️ Главное меню']
+    ])
+
+
+def kb_analytics_heatmap_actions():
+    """Heatmap actions"""
+    return reply_keyboard([
+        ['📤 Применить к рассылке'],
+        ['🔄 Обновить данные'],
+        ['◀️ Назад']
+    ])
+
+
+def kb_analytics_risk_actions():
+    """Risk prediction actions"""
+    return reply_keyboard([
+        ['🛡 Авто-защита', '⏸ Пауза рисковых'],
+        ['🔄 Обновить прогноз'],
+        ['◀️ Назад']
+    ])
+
+
+def kb_analytics_segments():
+    """Segments menu"""
+    return reply_keyboard([
+        ['🔥 Горячие', '🌡 Тёплые', '❄️ Холодные'],
+        ['📋 Все сегменты'],
+        ['◀️ Назад']
     ])
 
 
 # ==================== SETTINGS KEYBOARDS ====================
 
 def kb_settings_menu():
-    """Settings menu"""
+    """Settings menu - Extended"""
     return reply_keyboard([
         ['🌙 Тихие часы', '🔔 Уведомления'],
-        ['⏱ Задержка рассылки', '🗓 Кэш рассылки'],
+        ['⏱ Задержки', '🗓 Кэш рассылки'],
         ['🛡 Авто-блокировка', '🔥 Прогрев'],
+        ['⚠️ Риск-толерантность'],
+        ['🤖 Ботовод', '🏭 Фабрика'],
+        ['🧠 ИИ и обучение', '🔑 API ключи'],
         ['◀️ Главное меню']
     ])
 
@@ -388,11 +699,64 @@ def kb_warmup_settings():
     ])
 
 
-# ==================== INLINE KEYBOARDS (for lists only) ====================
+def kb_risk_tolerance():
+    """Risk tolerance settings"""
+    return reply_keyboard([
+        ['🟢 Низкий', '🟡 Средний', '🔴 Высокий'],
+        ['◀️ Назад']
+    ])
 
-def inline_keyboard(buttons: List[List[dict]]) -> dict:
-    """Create inline keyboard"""
-    return {'inline_keyboard': buttons}
+
+def kb_ai_settings():
+    """AI settings"""
+    return reply_keyboard([
+        ['📚 Режим обучения', '🔄 Авто-восстановление'],
+        ['🌡 Температура GPT'],
+        ['🗑 Очистить базу знаний'],
+        ['◀️ Назад']
+    ])
+
+
+def kb_api_keys():
+    """API keys settings"""
+    return reply_keyboard([
+        ['🔑 Yandex GPT', '📱 OnlineSim'],
+        ['🌐 Прокси'],
+        ['◀️ Назад']
+    ])
+
+
+def kb_gpt_temperature():
+    """GPT temperature selection"""
+    return reply_keyboard([
+        ['0.3 (точный)', '0.5', '0.7 (баланс)'],
+        ['0.9', '1.0 (креативный)'],
+        ['◀️ Назад']
+    ])
+
+
+# ==================== STATS KEYBOARDS ====================
+
+def kb_stats_menu():
+    """Statistics menu"""
+    return reply_keyboard([
+        ['📉 Ошибки за 7 дней', '🏆 Топ аудиторий'],
+        ['📊 Активные рассылки', '⏰ Статистика по часам'],
+        ['🛡 Негативные ответы', '🤖 Статистика ботовода'],
+        ['◀️ Главное меню']
+    ])
+
+
+# ==================== INLINE KEYBOARDS ====================
+
+def _get_reliability_emoji(reliability: float) -> str:
+    """Get emoji for reliability score"""
+    if reliability >= 80:
+        return '🟢'
+    elif reliability >= 50:
+        return '🟡'
+    else:
+        return '🔴'
 
 
 def kb_inline_audiences(sources: List[dict]) -> dict:
@@ -403,7 +767,6 @@ def kb_inline_audiences(sources: List[dict]) -> dict:
         status = {'pending': '⏳', 'running': '🔄', 'completed': '✅', 'failed': '❌'}.get(s.get('status'), '❓')
         link = s['source_link'][:20] + '..' if len(s['source_link']) > 20 else s['source_link']
         count = s.get('parsed_count', 0)
-        # Показываем иконку ключевых слов если есть
         kw_icon = '🔑' if s.get('keyword_filter') else ''
         buttons.append([{
             'text': f"{emoji}{status}{kw_icon} {link} ({count})",
@@ -452,16 +815,6 @@ def kb_inline_template_folders(folders: List[dict], mode: str = 'move', template
         cb = f"mvtpl:{template_id}:{f['id']}" if mode == 'move' else f"selfld:{f['id']}"
         buttons.append([{'text': f"📁 {f['name']}", 'callback_data': cb}])
     return inline_keyboard(buttons)
-
-
-def _get_reliability_emoji(reliability: float) -> str:
-    """Get emoji for reliability score without < > symbols"""
-    if reliability >= 80:
-        return '🟢'
-    elif reliability >= 50:
-        return '🟡'
-    else:
-        return '🔴'
 
 
 def kb_inline_accounts(folders: List[dict], accounts: List[dict]) -> dict:
@@ -566,7 +919,7 @@ def kb_inline_campaigns(campaigns: List[dict]) -> dict:
     """Inline keyboard for campaign selection"""
     buttons = []
     for c in campaigns[:10]:
-        status_emoji = {'pending': '⏳', 'running': '🔄', 'paused': '⏸', 'completed': '✅'}.get(c['status'], '❓')
+        status_emoji = {'pending': '⏳', 'running': '🔄', 'paused': '⏸', 'completed': '✅', 'scheduled': '📅'}.get(c['status'], '❓')
         sent = c.get('sent_count', 0)
         total = c.get('total_count', '?')
         buttons.append([{
@@ -674,4 +1027,225 @@ def kb_inline_hourly_stats(stats: List[dict]) -> dict:
             'callback_data': 'noop'
         }])
     
+    return inline_keyboard(buttons) if buttons else None
+
+
+# ==================== HERDER INLINE KEYBOARDS ====================
+
+def kb_inline_monitored_channels(channels: List[dict]) -> dict:
+    """Inline keyboard for monitored channels"""
+    buttons = []
+    for c in channels[:15]:
+        status = '🟢' if c.get('is_active') else '⏸'
+        priority = '🔼' if c.get('priority', 3) >= 4 else ('🔽' if c.get('priority', 3) <= 2 else '')
+        name = c.get('title') or f"@{c['channel_username']}"
+        name = name[:25] + '..' if len(name) > 25 else name
+        actions = c.get('total_actions', 0)
+        buttons.append([{
+            'text': f"{status}{priority} {name} ({actions})",
+            'callback_data': f"hch:{c['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+
+def kb_inline_herder_assignments(assignments: List[dict]) -> dict:
+    """Inline keyboard for herder assignments"""
+    from core.db import DB
+    buttons = []
+    for a in assignments[:15]:
+        status = {'active': '🟢', 'paused': '⏸', 'stopped': '🔴'}.get(a.get('status'), '❓')
+        channel = DB.get_monitored_channel(a['channel_id'])
+        ch_name = channel.get('title') or f"@{channel['channel_username']}" if channel else f"#{a['channel_id']}"
+        ch_name = ch_name[:20] + '..' if len(ch_name) > 20 else ch_name
+        actions = a.get('total_actions', 0)
+        buttons.append([{
+            'text': f"{status} {ch_name} ({actions} действий)",
+            'callback_data': f"hass:{a['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+
+def kb_inline_herder_accounts(accounts: List[dict], selected: List[int] = None) -> dict:
+    """Inline keyboard for selecting accounts for herder"""
+    selected = selected or []
+    buttons = []
+    for a in accounts[:15]:
+        check = '✅' if a['id'] in selected else '⬜️'
+        phone = a['phone']
+        masked = f"{phone[:4]}**{phone[-2:]}" if len(phone) > 6 else phone
+        profile = a.get('profile', {})
+        role = profile.get('role', 'observer') if profile else 'observer'
+        role_emoji = {'observer': '📖', 'expert': '🧠', 'support': '💪', 'trendsetter': '🔥'}.get(role, '👤')
+        buttons.append([{
+            'text': f"{check} {role_emoji} {masked}",
+            'callback_data': f"hselacc:{a['id']}"
+        }])
+    
+    buttons.append([
+        {'text': '✅ Выбрать все', 'callback_data': 'hselall'},
+        {'text': '❌ Снять все', 'callback_data': 'hselclear'}
+    ])
+    buttons.append([{'text': '➡️ Далее', 'callback_data': 'hselnext'}])
+    
+    return inline_keyboard(buttons)
+
+
+def kb_inline_herder_strategies() -> dict:
+    """Inline keyboard for strategy selection"""
+    buttons = [
+        [{'text': '📖 Наблюдатель', 'callback_data': 'hstrat:observer'}],
+        [{'text': '🧠 Эксперт', 'callback_data': 'hstrat:expert'}],
+        [{'text': '💪 Поддержка', 'callback_data': 'hstrat:support'}],
+        [{'text': '🔥 Трендсеттер', 'callback_data': 'hstrat:trendsetter'}],
+        [{'text': '👥 Комьюнити', 'callback_data': 'hstrat:community'}]
+    ]
+    return inline_keyboard(buttons)
+
+
+def kb_inline_account_profiles(profiles: List[dict]) -> dict:
+    """Inline keyboard for account profiles"""
+    buttons = []
+    for p in profiles[:15]:
+        acc = p.get('account', {})
+        prof = p.get('profile')
+        phone = acc.get('phone', '?')
+        masked = f"{phone[:4]}**{phone[-2:]}" if len(phone) > 6 else phone
+        
+        if prof:
+            role = prof.get('role', 'observer')
+            role_emoji = {'observer': '📖', 'expert': '🧠', 'support': '💪', 'trendsetter': '🔥'}.get(role, '👤')
+            persona = prof.get('persona', '')[:15] + '..' if prof.get('persona') and len(prof.get('persona', '')) > 15 else prof.get('persona', '-')
+            buttons.append([{
+                'text': f"{role_emoji} {masked} — {persona}",
+                'callback_data': f"hprof:{acc['id']}"
+            }])
+        else:
+            buttons.append([{
+                'text': f"❓ {masked} — нет профиля",
+                'callback_data': f"hprof:{acc['id']}"
+            }])
+    
+    return inline_keyboard(buttons) if buttons else None
+
+
+# ==================== ANALYTICS INLINE KEYBOARDS ====================
+
+def kb_inline_risk_accounts(accounts_with_risk: List[dict]) -> dict:
+    """Inline keyboard for accounts with risk predictions"""
+    buttons = []
+    for item in accounts_with_risk[:15]:
+        acc = item.get('account', {})
+        pred = item.get('prediction')
+        
+        phone = acc.get('phone', '?')
+        masked = f"{phone[:4]}**{phone[-2:]}" if len(phone) > 6 else phone
+        
+        if pred:
+            risk = pred.get('risk_score', 0)
+            if risk > 0.7:
+                emoji = '🔴'
+            elif risk > 0.4:
+                emoji = '🟡'
+            else:
+                emoji = '🟢'
+            risk_pct = int(risk * 100)
+            buttons.append([{
+                'text': f"{emoji} {masked} — {risk_pct}% риск",
+                'callback_data': f"arisk:{acc['id']}"
+            }])
+        else:
+            buttons.append([{
+                'text': f"❓ {masked} — нет данных",
+                'callback_data': f"arisk:{acc['id']}"
+            }])
+    
+    return inline_keyboard(buttons) if buttons else None
+
+
+def kb_inline_segments(segments: List[dict]) -> dict:
+    """Inline keyboard for audience segments"""
+    buttons = []
+    type_emoji = {'hot': '🔥', 'warm': '🌡', 'cold': '❄️', 'custom': '📊'}
+    for s in segments[:15]:
+        emoji = type_emoji.get(s.get('segment_type'), '📊')
+        name = s['name'][:25] + '..' if len(s['name']) > 25 else s['name']
+        count = s.get('user_count', 0)
+        buttons.append([{
+            'text': f"{emoji} {name} ({count})",
+            'callback_data': f"aseg:{s['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+
+# ==================== FACTORY INLINE KEYBOARDS ====================
+
+def kb_inline_factory_tasks(tasks: List[dict]) -> dict:
+    """Inline keyboard for factory tasks"""
+    buttons = []
+    status_emoji = {'pending': '⏳', 'in_progress': '🔄', 'completed': '✅', 'failed': '❌'}
+    for t in tasks[:10]:
+        emoji = status_emoji.get(t.get('status'), '❓')
+        created = t.get('created_count', 0)
+        total = t.get('count', 0)
+        buttons.append([{
+            'text': f"{emoji} #{t['id']} — {created}/{total} создано",
+            'callback_data': f"ftask:{t['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+
+def kb_inline_warmup_accounts(accounts: List[dict]) -> dict:
+    """Inline keyboard for accounts in warmup"""
+    buttons = []
+    for a in accounts[:15]:
+        phone = a.get('phone', '?')
+        masked = f"{phone[:4]}**{phone[-2:]}" if len(phone) > 6 else phone
+        
+        warmup_status = a.get('warmup_status', 'none')
+        if warmup_status == 'in_progress':
+            emoji = '🔥'
+            day = a.get('warmup_day', 1)
+            text = f"{emoji} {masked} — день {day}"
+        elif warmup_status == 'completed':
+            emoji = '✅'
+            text = f"{emoji} {masked} — готов"
+        else:
+            emoji = '⏳'
+            text = f"{emoji} {masked} — ожидает"
+        
+        buttons.append([{
+            'text': text,
+            'callback_data': f"fwarm:{a['id']}"
+        }])
+    
+    return inline_keyboard(buttons) if buttons else None
+
+
+# ==================== CONTENT INLINE KEYBOARDS ====================
+
+def kb_inline_user_channels(channels: List[dict]) -> dict:
+    """Inline keyboard for user channels"""
+    buttons = []
+    for c in channels[:10]:
+        name = c.get('title') or f"@{c['channel_username']}"
+        name = name[:25] + '..' if len(name) > 25 else name
+        buttons.append([{
+            'text': f"📢 {name}",
+            'callback_data': f"uch:{c['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+
+def kb_inline_generated_content(content: List[dict]) -> dict:
+    """Inline keyboard for generated content"""
+    buttons = []
+    status_emoji = {'draft': '📝', 'scheduled': '📅', 'published': '✅', 'rejected': '❌'}
+    for c in content[:15]:
+        emoji = status_emoji.get(c.get('status'), '📝')
+        title = c.get('title') or c.get('content', '')[:20]
+        title = title[:25] + '..' if len(title) > 25 else title
+        buttons.append([{
+            'text': f"{emoji} {title}",
+            'callback_data': f"gcont:{c['id']}"
+        }])
     return inline_keyboard(buttons) if buttons else None
