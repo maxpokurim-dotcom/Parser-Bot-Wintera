@@ -1,6 +1,6 @@
 """
-Telegram Bot Webhook - Entry Point v2.0
-With Panic Stop, Resume, and extended handlers
+Telegram Bot Webhook - Entry Point v3.0
+With Herder, Factory, Content, Analytics modules
 """
 import json
 import logging
@@ -13,9 +13,11 @@ from core.keyboards import kb_main_menu
 # Import handlers
 from core.menu import (
     show_main_menu, handle_start, handle_cancel,
-    handle_panic_stop, handle_resume,
+    handle_panic_stop, handle_resume, handle_help,
     BTN_PARSING_CHATS, BTN_COMMENTS, BTN_AUDIENCES, BTN_TEMPLATES,
-    BTN_ACCOUNTS, BTN_MAILING, BTN_STATS, BTN_SETTINGS, BTN_CANCEL, BTN_BACK
+    BTN_ACCOUNTS, BTN_MAILING, BTN_STATS, BTN_SETTINGS, 
+    BTN_HERDER, BTN_FACTORY, BTN_CONTENT, BTN_ANALYTICS,
+    BTN_CANCEL, BTN_BACK, BTN_MAIN_MENU
 )
 from core.parsing import (
     start_chat_parsing, start_comments_parsing,
@@ -36,6 +38,11 @@ from core.mailing import (
 )
 from core.settings import show_settings_menu, handle_settings, handle_settings_callback
 from core.stats import show_stats_menu, handle_stats
+
+# New modules
+from core.herder import (
+    show_herder_menu, handle_herder, handle_herder_callback
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -74,6 +81,10 @@ def handle_message(message: dict):
         show_stats_menu(chat_id, user_id)
         return
 
+    if text == '/help':
+        handle_help(chat_id, user_id)
+        return
+
     # Panic stop command
     if text == '/panic' or text == '/panic_stop':
         handle_panic_stop(chat_id, user_id)
@@ -86,8 +97,7 @@ def handle_message(message: dict):
 
     # Check if system is paused (for operations)
     if DB.is_system_paused(user_id):
-        if text not in [BTN_STATS, '/stats', '/resume']:
-            # Allow stats and resume even when paused
+        if text not in [BTN_STATS, '/stats', '/resume', '/help']:
             if state and not state.startswith('stats:'):
                 send_message(chat_id,
                     "🚨 <b>Система приостановлена</b>\n\n"
@@ -122,12 +132,32 @@ def handle_message(message: dict):
             show_mailing_menu(chat_id, user_id)
             return
         
-        if text == BTN_STATS:
+        if text == BTN_STATS or text == '📈 Статистика':
             show_stats_menu(chat_id, user_id)
             return
         
         if text == BTN_SETTINGS:
             show_settings_menu(chat_id, user_id)
+            return
+        
+        # New modules
+        if text == BTN_HERDER:
+            show_herder_menu(chat_id, user_id)
+            return
+        
+        if text == BTN_FACTORY:
+            # Factory module (placeholder - will be implemented)
+            show_factory_menu(chat_id, user_id)
+            return
+        
+        if text == BTN_CONTENT:
+            # Content module (placeholder - will be implemented)
+            show_content_menu(chat_id, user_id)
+            return
+        
+        if text == BTN_ANALYTICS:
+            # Analytics module (placeholder - will be implemented)
+            show_analytics_menu(chat_id, user_id)
             return
 
     # Handle media for template creation
@@ -137,6 +167,11 @@ def handle_message(message: dict):
 
     # Route to appropriate handler based on state
     if state:
+        # Herder handlers
+        if state.startswith('herder:'):
+            if handle_herder(chat_id, user_id, text, state, saved):
+                return
+        
         # Parsing handlers
         if state.startswith('parse_chat:'):
             if handle_chat_parsing(chat_id, user_id, text, state, saved):
@@ -175,13 +210,28 @@ def handle_message(message: dict):
         if state.startswith('stats:'):
             if handle_stats(chat_id, user_id, text, state, saved):
                 return
+        
+        # Factory handlers (placeholder)
+        if state.startswith('factory:'):
+            if handle_factory(chat_id, user_id, text, state, saved):
+                return
+        
+        # Content handlers (placeholder)
+        if state.startswith('content:'):
+            if handle_content(chat_id, user_id, text, state, saved):
+                return
+        
+        # Analytics handlers (placeholder)
+        if state.startswith('analytics:'):
+            if handle_analytics(chat_id, user_id, text, state, saved):
+                return
 
     # Global cancel/back
     if text == BTN_CANCEL:
         handle_cancel(chat_id, user_id)
         return
 
-    if text == BTN_BACK or text == '◀️ Главное меню':
+    if text == BTN_BACK or text == BTN_MAIN_MENU:
         show_main_menu(chat_id, user_id)
         return
 
@@ -207,7 +257,11 @@ def handle_callback(callback: dict):
     if data == 'noop':
         return
 
-    # Route callbacks to handlers
+    # Herder callbacks
+    if data.startswith('hsel') or data.startswith('hstrat:') or data.startswith('hass:') or \
+       data.startswith('hch:') or data.startswith('hprof'):
+        handle_herder_callback(chat_id, msg_id, user_id, data)
+        return
 
     # Audience callbacks
     if data.startswith('aud:') or data.startswith('deltag:') or data.startswith('togtag:') or \
@@ -237,6 +291,145 @@ def handle_callback(callback: dict):
         handle_settings_callback(chat_id, msg_id, user_id, data)
         return
 
+    # Factory callbacks (placeholder)
+    if data.startswith('ftask:') or data.startswith('fwarm:'):
+        handle_factory_callback(chat_id, msg_id, user_id, data)
+        return
+
+    # Analytics callbacks (placeholder)
+    if data.startswith('arisk:') or data.startswith('aseg:'):
+        handle_analytics_callback(chat_id, msg_id, user_id, data)
+        return
+
+    # Content callbacks (placeholder)
+    if data.startswith('uch:') or data.startswith('gcont:'):
+        handle_content_callback(chat_id, msg_id, user_id, data)
+        return
+
+
+# ==================== PLACEHOLDER HANDLERS ====================
+# These will be implemented in separate modules
+
+def show_factory_menu(chat_id: int, user_id: int):
+    """Factory menu placeholder"""
+    from core.keyboards import kb_factory_menu
+    DB.set_user_state(user_id, 'factory:menu')
+    send_message(chat_id,
+        "🏭 <b>Фабрика аккаунтов</b>\n\n"
+        "Создание и прогрев аккаунтов.\n\n"
+        "⚠️ Модуль в разработке.\n"
+        "Используйте «👤 Аккаунты» для ручного добавления.",
+        kb_factory_menu()
+    )
+
+
+def handle_factory(chat_id: int, user_id: int, text: str, state: str, saved: dict) -> bool:
+    """Factory handler placeholder"""
+    if text == BTN_MAIN_MENU or text == BTN_BACK or text == '◀️ Главное меню':
+        show_main_menu(chat_id, user_id)
+        return True
+    return False
+
+
+def handle_factory_callback(chat_id: int, msg_id: int, user_id: int, data: str):
+    """Factory callback placeholder"""
+    pass
+
+
+def show_content_menu(chat_id: int, user_id: int):
+    """Content menu placeholder"""
+    from core.keyboards import kb_content_menu
+    DB.set_user_state(user_id, 'content:menu')
+    send_message(chat_id,
+        "📝 <b>Контент-менеджер</b>\n\n"
+        "Генерация постов с помощью ИИ.\n\n"
+        "⚠️ Модуль в разработке.\n"
+        "Требуется настройка Yandex GPT API в настройках.",
+        kb_content_menu()
+    )
+
+
+def handle_content(chat_id: int, user_id: int, text: str, state: str, saved: dict) -> bool:
+    """Content handler placeholder"""
+    if text == BTN_MAIN_MENU or text == BTN_BACK or text == '◀️ Главное меню':
+        show_main_menu(chat_id, user_id)
+        return True
+    return False
+
+
+def handle_content_callback(chat_id: int, msg_id: int, user_id: int, data: str):
+    """Content callback placeholder"""
+    pass
+
+
+def show_analytics_menu(chat_id: int, user_id: int):
+    """Analytics menu placeholder"""
+    from core.keyboards import kb_analytics_menu
+    DB.set_user_state(user_id, 'analytics:menu')
+    
+    # Get some basic stats
+    stats = DB.get_dashboard_stats(user_id)
+    
+    send_message(chat_id,
+        f"📈 <b>Аналитика и прогнозы</b>\n\n"
+        f"<b>Быстрая статистика:</b>\n"
+        f"├ Аккаунтов: {stats.get('accounts', 0)} ({stats.get('accounts_active', 0)} активных)\n"
+        f"├ Отправлено: {stats.get('total_sent', 0)}\n"
+        f"└ Успешность: {stats.get('success_rate', 0)}%\n\n"
+        f"⚠️ Расширенная аналитика в разработке.",
+        kb_analytics_menu()
+    )
+
+
+def handle_analytics(chat_id: int, user_id: int, text: str, state: str, saved: dict) -> bool:
+    """Analytics handler placeholder"""
+    if text == BTN_MAIN_MENU or text == BTN_BACK or text == '◀️ Главное меню':
+        show_main_menu(chat_id, user_id)
+        return True
+    
+    if text == '🔥 Heatmap активности':
+        heatmap = DB.get_audience_heatmap(user_id)
+        if heatmap:
+            send_message(chat_id,
+                "🔥 <b>Heatmap активности</b>\n\n"
+                f"Данные на основе {heatmap.get('sample_size', 0)} пользователей.\n\n"
+                "Лучшее время для рассылки определено.",
+                kb_main_menu()
+            )
+        else:
+            send_message(chat_id,
+                "🔥 <b>Heatmap активности</b>\n\n"
+                "Недостаточно данных для анализа.\n"
+                "Выполните парсинг аудитории.",
+                kb_main_menu()
+            )
+        return True
+    
+    if text == '⚠️ Прогноз рисков':
+        predictions = DB.get_all_risk_predictions(user_id)
+        high_risk = [p for p in predictions if p.get('prediction') and p['prediction'].get('risk_score', 0) > 0.7]
+        
+        if high_risk:
+            send_message(chat_id,
+                f"⚠️ <b>Аккаунты с высоким риском: {len(high_risk)}</b>\n\n"
+                "Рекомендуется снизить нагрузку или приостановить.",
+                kb_main_menu()
+            )
+        else:
+            send_message(chat_id,
+                "✅ <b>Прогноз рисков</b>\n\n"
+                "Аккаунтов с высоким риском не обнаружено.",
+                kb_main_menu()
+            )
+        return True
+    
+    return False
+
+
+def handle_analytics_callback(chat_id: int, msg_id: int, user_id: int, data: str):
+    """Analytics callback placeholder"""
+    pass
+
 
 # ==================== VERCEL HANDLER ====================
 class handler(BaseHTTPRequestHandler):
@@ -250,7 +443,8 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps({
             'status': 'ok',
             'message': 'Telegram Bot is running',
-            'version': '3.1.0-extended'
+            'version': '3.0.0-herder',
+            'modules': ['parsing', 'mailing', 'herder', 'factory', 'content', 'analytics']
         }).encode())
 
     def do_POST(self):
