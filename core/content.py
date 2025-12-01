@@ -59,8 +59,7 @@ def show_content_menu(chat_id: int, user_id: int):
     channels = DB.get_user_channels(user_id)
     generated = DB.get_generated_content(user_id, status='draft', limit=1)
     trends = DB.get_trend_snapshots(user_id, limit=1)
-    
-        send_message(chat_id,
+    send_message(chat_id,
         f"📝 <b>Контент-менеджер</b>\n"
         f"ИИ-генерация контента и анализ\n"
         f"📊 <b>Статистика:</b>\n"
@@ -158,8 +157,7 @@ def handle_content(chat_id: int, user_id: int, text: str, state: str, saved: dic
         if text == '🗑 Удалить':
             DB.set_user_state(user_id, f'content:channel:delete:{channel_id}')
             send_message(chat_id,
-                "🗑 <b>Удалить канал?</b>
-"
+                "🗑 <b>Удалить канал?</b>\n"
                 "⚠️ Все связанные задачи будут отменены.",
                 kb_confirm_delete()
             )
@@ -198,10 +196,8 @@ def start_post_generation(chat_id: int, user_id: int):
     settings = DB.get_user_settings(user_id)
     if not settings.get('yagpt_api_key') or not settings.get('yagpt_folder_id'):
         send_message(chat_id,
-            "❌ <b>Yandex GPT не настроен</b>
-"
-            "Для генерации постов настройте API ключи:
-"
+            "❌ <b>Yandex GPT не настроен</b>\n"
+            "Для генерации постов настройте API ключи:\n"
             "⚙️ Настройки → 🔑 API ключи → Yandex GPT",
             kb_content_menu()
         )
@@ -209,16 +205,11 @@ def start_post_generation(chat_id: int, user_id: int):
 
     DB.set_user_state(user_id, 'content:gen:topic', {})
     send_message(chat_id,
-        "✍️ <b>Генерация поста</b>
-"
-        "Введите тему или ключевые слова для поста:
-"
-        "Примеры:
-"
-        "• <code>автоматизация Telegram-маркетинга</code>
-"
-        "• <code>как прогреть аккаунт перед рассылкой</code>
-"
+        "✍️ <b>Генерация поста</b>\n"
+        "Введите тему или ключевые слова для поста:\n"
+        "Примеры:\n"
+        "• <code>автоматизация Telegram-маркетинга</code>\n"
+        "• <code>как прогреть аккаунт перед рассылкой</code>\n"
         "• <code>ИИ в управлении Telegram-каналами</code>",
         kb_back_cancel()
     )
@@ -234,8 +225,7 @@ def _handle_gen_topic(chat_id: int, user_id: int, text: str, saved: dict) -> boo
     saved['topic'] = topic
     DB.set_user_state(user_id, 'content:gen:style', saved)
     send_message(chat_id,
-        f"✅ Тема: <i>{topic}</i>
-"
+        f"✅ Тема: <i>{topic}</i>\n"
         f"🎭 <b>Выберите стиль поста:</b>",
         kb_content_style()
     )
@@ -256,8 +246,7 @@ def _handle_gen_style(chat_id: int, user_id: int, text: str, saved: dict) -> boo
     saved['style'] = style
     DB.set_user_state(user_id, 'content:gen:length', saved)
     send_message(chat_id,
-        f"✅ Стиль: <b>{text}</b>
-"
+        f"✅ Стиль: <b>{text}</b>\n"
         f"📏 <b>Выберите длину:</b>",
         kb_content_length()
     )
@@ -277,10 +266,8 @@ def _handle_gen_length(chat_id: int, user_id: int, text: str, saved: dict) -> bo
     saved['length'] = length
     DB.set_user_state(user_id, 'content:gen:trends', saved)
     send_message(chat_id,
-        f"✅ Длина: <b>{text}</b>
-"
-        f"📈 <b>Использовать актуальные тренды?</b>
-"
+        f"✅ Длина: <b>{text}</b>\n"
+        f"📈 <b>Использовать актуальные тренды?</b>\n"
         f"Это сделает пост более релевантным.",
         reply_keyboard([
             ['✅ Да', '❌ Нет'],
@@ -304,8 +291,7 @@ def _handle_gen_trends(chat_id: int, user_id: int, text: str, saved: dict) -> bo
         saved['channels'] = channels
         DB.set_user_state(user_id, 'content:gen:channel', saved)
         send_message(chat_id,
-            "📢 <b>Целевой канал</b>
-"
+            "📢 <b>Целевой канал</b>\n"
             "Выберите канал, для которого генерируется пост:",
             kb_inline_user_channels(channels)
         )
@@ -316,7 +302,6 @@ def _handle_gen_trends(chat_id: int, user_id: int, text: str, saved: dict) -> bo
 
 def _handle_gen_channel(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle channel selection via inline callback (handled in callback)"""
-    # This state is primarily managed by callbacks
     send_message(chat_id, "Выберите канал из списка выше", kb_back_cancel())
     return True
 
@@ -342,17 +327,12 @@ def _show_generation_confirmation(chat_id: int, user_id: int, saved: dict):
         channel_info = f"\n📢 Канал: @{ch['channel_username']}"
 
     send_message(chat_id,
-        f"📋 <b>Подтверждение генерации</b>
-"
-        f"🎯 Тема: <i>{saved['topic']}</i>
-"
-        f"🎭 Стиль: {style_names.get(saved['style'], saved['style'])}
-"
-        f"📏 Длина: {length_names.get(saved['length'], saved['length'])}
-"
+        f"📋 <b>Подтверждение генерации</b>\n"
+        f"🎯 Тема: <i>{saved['topic']}</i>\n"
+        f"🎭 Стиль: {style_names.get(saved['style'], saved['style'])}\n"
+        f"📏 Длина: {length_names.get(saved['length'], saved['length'])}\n"
         f"📈 Тренды: {'✅ Да' if saved.get('use_trends') else '❌ Нет'}"
-        f"{channel_info}
-"
+        f"{channel_info}\n"
         f"🕒 Генерация займёт 10-60 секунд",
         kb_content_actions()
     )
@@ -379,12 +359,9 @@ def _handle_gen_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> b
         )
         if task:
             send_message(chat_id,
-                f"✅ <b>Задача создана!</b>
-"
-                f"🆔 ID: #{task['id']}
-"
-                f"Статус: ⏳ Ожидает генерации
-"
+                f"✅ <b>Задача создана!</b>\n"
+                f"🆔 ID: #{task['id']}\n"
+                f"Статус: ⏳ Ожидает генерации\n"
                 f"Результат появится в разделе «Сгенерированные»",
                 kb_content_menu()
             )
@@ -403,8 +380,7 @@ def start_trend_analysis(chat_id: int, user_id: int):
     settings = DB.get_user_settings(user_id)
     if not settings.get('yagpt_api_key') or not settings.get('yagpt_folder_id'):
         send_message(chat_id,
-            "❌ <b>Yandex GPT не настроен</b>
-"
+            "❌ <b>Yandex GPT не настроен</b>\n"
             "Настройте API ключи в разделе настроек.",
             kb_content_menu()
         )
@@ -413,8 +389,7 @@ def start_trend_analysis(chat_id: int, user_id: int):
     channels = DB.get_user_channels(user_id)
     if not channels:
         send_message(chat_id,
-            "❌ <b>Нет добавленных каналов</b>
-"
+            "❌ <b>Нет добавленных каналов</b>\n"
             "Добавьте каналы в разделе «🔗 Мои каналы»",
             kb_content_menu()
         )
@@ -422,8 +397,7 @@ def start_trend_analysis(chat_id: int, user_id: int):
 
     DB.set_user_state(user_id, 'content:trend:channel', {'channels': channels})
     send_message(chat_id,
-        "📊 <b>Анализ трендов</b>
-"
+        "📊 <b>Анализ трендов</b>\n"
         "Выберите канал для анализа:",
         kb_inline_user_channels(channels)
     )
@@ -436,12 +410,9 @@ def _show_trend_confirmation(chat_id: int, user_id: int, saved: dict):
     channel = DB.get_user_channel(saved['channel_id'])
     channel_name = f"@{channel['channel_username']}" if channel else f"ID {saved['channel_id']}"
     send_message(chat_id,
-        f"📋 <b>Подтверждение анализа</b>
-"
-        f"📢 Канал: {channel_name}
-"
-        f"📈 Будет проанализировано до 100 последних постов
-"
+        f"📋 <b>Подтверждение анализа</b>\n"
+        f"📢 Канал: {channel_name}\n"
+        f"📈 Будет проанализировано до 100 последних постов\n"
         f"🕒 Анализ займёт 1-3 минуты",
         kb_content_actions()
     )
@@ -459,10 +430,8 @@ def _handle_trend_confirm(chat_id: int, user_id: int, text: str, saved: dict) ->
         )
         if snapshot:
             send_message(chat_id,
-                f"✅ <b>Анализ запущен!</b>
-"
-                f"🆔 ID: #{snapshot['id']}
-"
+                f"✅ <b>Анализ запущен!</b>\n"
+                f"🆔 ID: #{snapshot['id']}\n"
                 f"Статус: ⏳ В обработке",
                 kb_content_menu()
             )
@@ -493,8 +462,7 @@ def start_discussion_summary(chat_id: int, user_id: int):
 
     DB.set_user_state(user_id, 'content:summary:channel', {'channels': channels})
     send_message(chat_id,
-        "💬 <b>Итоги обсуждений</b>
-"
+        "💬 <b>Итоги обсуждений</b>\n"
         "Выберите канал для анализа комментариев:",
         kb_inline_user_channels(channels)
     )
@@ -526,12 +494,9 @@ def _show_summary_confirmation(chat_id: int, user_id: int, saved: dict):
     channel = DB.get_user_channel(saved['channel_id'])
     channel_name = f"@{channel['channel_username']}" if channel else f"ID {saved['channel_id']}"
     send_message(chat_id,
-        f"📋 <b>Подтверждение итогов</b>
-"
-        f"📢 Канал: {channel_name}
-"
-        f"📆 Период: {saved['period_days']} дней
-"
+        f"📋 <b>Подтверждение итогов</b>\n"
+        f"📢 Канал: {channel_name}\n"
+        f"📆 Период: {saved['period_days']} дней\n"
         f"🕒 Генерация займёт 30-90 секунд",
         kb_content_actions()
     )
@@ -553,8 +518,7 @@ def _handle_summary_confirm(chat_id: int, user_id: int, text: str, saved: dict) 
         )
         if content:
             send_message(chat_id,
-                f"✅ <b>Задача создана!</b>
-"
+                f"✅ <b>Задача создана!</b>\n"
                 f"Результат появится в разделе «Сгенерированные»",
                 kb_content_menu()
             )
@@ -569,10 +533,8 @@ def show_my_channels_menu(chat_id: int, user_id: int):
     channels = DB.get_user_channels(user_id)
     count = len(channels)
     send_message(chat_id,
-        f"🔗 <b>Мои каналы</b>
-"
-        f"Управляйте своими Telegram-каналами
-"
+        f"🔗 <b>Мои каналы</b>\n"
+        f"Управляйте своими Telegram-каналами\n"
         f"📊 Каналов: <b>{count}</b>",
         kb_content_channels_menu()
     )
@@ -581,14 +543,10 @@ def start_add_channel(chat_id: int, user_id: int):
     """Start add channel flow"""
     DB.set_user_state(user_id, 'content:channels:add', {})
     send_message(chat_id,
-        "➕ <b>Добавление канала</b>
-"
-        "Введите ссылку на ваш Telegram-канал:
-"
-        "Примеры:
-"
-        "• @mychannel
-"
+        "➕ <b>Добавление канала</b>\n"
+        "Введите ссылку на ваш Telegram-канал:\n"
+        "Примеры:\n"
+        "• @mychannel\n"
         "• https://t.me/mychannel",
         kb_back_cancel()
     )
@@ -598,6 +556,7 @@ def _handle_add_channel(chat_id: int, user_id: int, text: str, saved: dict) -> b
     import re
     link = text.strip().lower()
     username = re.sub(r'^(@|https?://t\.me/)', '', link)
+    username = username.split('/')[0]  # Remove any trailing parts
     if not re.match(r'^[a-zA-Z][\w_]{4,}$', username):
         send_message(chat_id, "❌ Неверный формат канала", kb_back_cancel())
         return True
@@ -605,10 +564,8 @@ def _handle_add_channel(chat_id: int, user_id: int, text: str, saved: dict) -> b
     channel = DB.create_user_channel(user_id, username)
     if channel:
         send_message(chat_id,
-            f"✅ <b>Канал добавлен!</b>
-"
-            f"📢 @{username}
-"
+            f"✅ <b>Канал добавлен!</b>\n"
+            f"📢 @{username}\n"
             f"Теперь вы можете генерировать для него контент",
             kb_content_channels_menu()
         )
@@ -622,8 +579,7 @@ def show_channel_list(chat_id: int, user_id: int):
     channels = DB.get_user_channels(user_id)
     if not channels:
         send_message(chat_id,
-            "🔗 <b>Мои каналы</b>
-"
+            "🔗 <b>Мои каналы</b>\n"
             "У вас пока нет добавленных каналов.",
             kb_content_channels_menu()
         )
@@ -643,10 +599,8 @@ def show_channel_view(chat_id: int, user_id: int, channel_id: int):
     username = channel['channel_username']
     niche = channel.get('niche', '—')
     send_message(chat_id,
-        f"📢 <b>@{username}</b>
-"
-        f"🏷 Ниша: {niche}
-"
+        f"📢 <b>@{username}</b>\n"
+        f"🏷 Ниша: {niche}\n"
         f"🆔 ID: {channel_id}",
         kb_content_channel_actions()
     )
@@ -654,10 +608,8 @@ def show_channel_view(chat_id: int, user_id: int, channel_id: int):
 def show_channel_analytics(chat_id: int, user_id: int, channel_id: int):
     """Show channel analytics (stub)"""
     send_message(chat_id,
-        "📊 <b>Аналитика канала</b>
-"
-        "Функция в разработке.
-"
+        "📊 <b>Аналитика канала</b>\n"
+        "Функция в разработке.\n"
         "На VPS будет собирать статистику постов и комментариев.",
         kb_content_channel_actions()
     )
@@ -665,8 +617,7 @@ def show_channel_analytics(chat_id: int, user_id: int, channel_id: int):
 def start_channel_posting(chat_id: int, user_id: int, channel_id: int):
     """Start posting to channel (stub)"""
     send_message(chat_id,
-        "📤 <b>Публикация в канал</b>
-"
+        "📤 <b>Публикация в канал</b>\n"
         "Выберите сгенерированный пост для публикации:",
         kb_content_menu()
     )
@@ -675,10 +626,8 @@ def start_channel_posting(chat_id: int, user_id: int, channel_id: int):
 def show_auto_templates(chat_id: int, user_id: int):
     """Show auto-generated templates (from generated_content folder)"""
     send_message(chat_id,
-        "📄 <b>Шаблоны (авто)</b>
-"
-        "Авто-сгенерированные шаблоны сохраняются в папку «Сгенерированные».
-"
+        "📄 <b>Шаблоны (авто)</b>\n"
+        "Авто-сгенерированные шаблоны сохраняются в папку «Сгенерированные».\n"
         "Откройте раздел шаблонов для просмотра.",
         kb_content_menu()
     )
@@ -686,10 +635,8 @@ def show_auto_templates(chat_id: int, user_id: int):
 def show_content_plan(chat_id: int, user_id: int):
     """Show content plan (stub with task creation)"""
     send_message(chat_id,
-        "📅 <b>Контент-план</b>
-"
-        "Функция в разработке.
-"
+        "📅 <b>Контент-план</b>\n"
+        "Функция в разработке.\n"
         "В будущем будет доступно планирование публикаций.",
         kb_content_menu()
     )
@@ -742,7 +689,7 @@ def handle_content_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
                 reply_keyboard([
                     [BTN_SUMMARY_PERIOD_WEEK, BTN_SUMMARY_PERIOD_MONTH],
                     [BTN_SUMMARY_PERIOD_CUSTOM],
-                    ['◀️ Назад', '❌ Отмена']
+                    ['◀️ Назад']
                 ])
             )
         return True
@@ -769,14 +716,10 @@ def show_generated_content(chat_id: int, user_id: int, content_id: int):
         text = "<i>Генерация в процессе...</i>"
 
     send_message(chat_id,
-        f"📄 <b>{title}</b>
-"
-        f"Статус: {status}
-"
-        f"━━━━━━━━━━━━━━━━━━━
-"
-        f"{text}
-"
+        f"📄 <b>{title}</b>\n"
+        f"Статус: {status}\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"{text}\n"
         f"━━━━━━━━━━━━━━━━━━━",
         kb_content_actions()
     )
