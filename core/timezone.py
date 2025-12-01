@@ -1,34 +1,37 @@
 """
-Timezone utilities - Moscow Time (Europe/Moscow)
-All bot operations use Moscow timezone
+Timezone utilities - Moscow time (Europe/Moscow)
+All operations in the system use Moscow timezone
 """
-from datetime import datetime, timedelta
-from typing import Optional
+import logging
+from datetime import datetime, timedelta, time
+from typing import Optional, Tuple, List, Dict
 
+logger = logging.getLogger(__name__)
+
+# Try to import pytz, fallback to manual offset
 try:
     import pytz
     MOSCOW_TZ = pytz.timezone('Europe/Moscow')
-    UTC_TZ = pytz.UTC
     HAS_PYTZ = True
 except ImportError:
     MOSCOW_TZ = None
-    UTC_TZ = None
     HAS_PYTZ = False
+    logger.warning("pytz not installed, using manual UTC+3 offset")
 
+
+# ==================== CORE FUNCTIONS ====================
 
 def now_moscow() -> datetime:
     """Get current time in Moscow timezone"""
-    if HAS_PYTZ:
+    if HAS_PYTZ and MOSCOW_TZ:
         return datetime.now(MOSCOW_TZ)
-    # Fallback: UTC + 3 hours
     return datetime.utcnow() + timedelta(hours=3)
 
 
-def now_utc() -> datetime:
-    """Get current UTC time"""
-    if HAS_PYTZ:
-        return datetime.now(UTC_TZ)
-    return datetime.utcnow()
+def today_moscow() -> datetime:
+    """Get today's date at midnight in Moscow timezone"""
+    now = now_moscow()
+    return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def to_moscow(dt: datetime) -> datetime:
@@ -36,34 +39,34 @@ def to_moscow(dt: datetime) -> datetime:
     if dt is None:
         return None
     
-    if HAS_PYTZ:
+    if HAS_PYTZ and MOSCOW_TZ:
         if dt.tzinfo is None:
             # Assume UTC if no timezone
-            dt = UTC_TZ.localize(dt)
+            import pytz
+            dt = pytz.UTC.localize(dt)
         return dt.astimezone(MOSCOW_TZ)
-    
-    # Fallback: assume UTC, add 3 hours
-    if dt.tzinfo is None:
-        return dt + timedelta(hours=3)
-    return dt
+    else:
+        # Manual conversion assuming UTC
+        if dt.tzinfo is None:
+            return dt + timedelta(hours=3)
+        return dt
 
 
-def to_utc(dt: datetime) -> datetime:
-    """Convert datetime to UTC"""
+def from_moscow_to_utc(dt: datetime) -> datetime:
+    """Convert Moscow time to UTC"""
     if dt is None:
         return None
     
-    if HAS_PYTZ:
+    if HAS_PYTZ and MOSCOW_TZ:
         if dt.tzinfo is None:
-            # Assume Moscow if no timezone
             dt = MOSCOW_TZ.localize(dt)
-        return dt.astimezone(UTC_TZ)
-    
-    # Fallback: assume Moscow, subtract 3 hours
-    if dt.tzinfo is None:
+        import pytz
+        return dt.astimezone(pytz.UTC)
+    else:
         return dt - timedelta(hours=3)
-    return dt
 
+
+# ==================== FORMATTING ====================
 
 def format_moscow(dt: datetime, fmt: str = '%d.%m.%Y %H:%M') -> str:
     """Format datetime in Moscow timezone"""
@@ -72,11 +75,9 @@ def format_moscow(dt: datetime, fmt: str = '%d.%m.%Y %H:%M') -> str:
     try:
         moscow_dt = to_moscow(dt)
         return moscow_dt.strftime(fmt)
-    except Exception:
-        try:
-            return dt.strftime(fmt)
-        except:
-            return '-'
+    except Exception as e:
+        logger.error(f"format_moscow error: {e}")
+        return dt.strftime(fmt) if dt else '-'
 
 
 def format_date(dt: datetime) -> str:
@@ -89,182 +90,13 @@ def format_time(dt: datetime) -> str:
     return format_moscow(dt, '%H:%M')
 
 
-def format_datetime_short(dt: datetime) -> str:
-    """Format datetime short"""
-    return format_moscow(dt, '%d.%m %H:%M')
-
-
-def format_datetime_full(dt: datetime) -> str:
-    """Format datetime with seconds"""
+def format_datetime(dt: datetime) -> str:
+    """Format full datetime"""
     return format_moscow(dt, '%d.%m.%Y %H:%M:%S')
 
 
-def parse_datetime(dt_string: str) -> Optional[datetime]:
-    """Parse ISO datetime string to Moscow timezone"""
-    if not dt_string:
-        return None
-    
-    try:
-        # Handle various formats
-        dt_string = dt_string.replace('Z', '+00:00')
-        
-        # Try parsing with timezone
-        if '+' in dt_string or '-' in dt_string[10:]:  # Has timezone
-            dt = datetime.fromisoformat(dt_string)
-        else:
-            # No timezone - assume UTC
-            dt = datetime.fromisoformat(dt_string)
-            if HAS_PYTZ:
-                dt = UTC_TZ.localize(dt)
-        
-        return to_moscow(dt)
-    except Exception:
-        return None
-
-
-def parse_date(date_string: str) -> Optional[datetime]:
-    """Parse date string (YYYY-MM-DD or DD.MM.YYYY)"""
-    if not date_string:
-        return None
-    
-    try:
-        # Try ISO format first
-        if '-' in date_string and len(date_string) == 10:
-            dt = datetime.strptime(date_string, '%Y-%m-%d')
-        # Try Russian format
-        elif '.' in date_string:
-            dt = datetime.strptime(date_string, '%d.%m.%Y')
-        else:
-            return None
-        
-        if HAS_PYTZ:
-            dt = MOSCOW_TZ.localize(dt)
-        
-        return dt
-    except Exception:
-        return None
-
-
-def parse_time(time_string: str) -> Optional[tuple]:
-    """Parse time string (HH:MM) to tuple (hour, minute)"""
-    if not time_string:
-        return None
-    
-    try:
-        parts = time_string.split(':')
-        hour = int(parts[0])
-        minute = int(parts[1]) if len(parts) > 1 else 0
-        
-        if 0 <= hour <= 23 and 0 <= minute <= 59:
-            return (hour, minute)
-        return None
-    except Exception:
-        return None
-
-
-def get_today_start_moscow() -> datetime:
-    """Get start of today (00:00) in Moscow timezone"""
-    now = now_moscow()
-    return now.replace(hour=0, minute=0, second=0, microsecond=0)
-
-
-def get_today_end_moscow() -> datetime:
-    """Get end of today (23:59:59) in Moscow timezone"""
-    now = now_moscow()
-    return now.replace(hour=23, minute=59, second=59, microsecond=999999)
-
-
-def get_week_start_moscow() -> datetime:
-    """Get start of current week (Monday 00:00) in Moscow timezone"""
-    now = now_moscow()
-    days_since_monday = now.weekday()
-    monday = now - timedelta(days=days_since_monday)
-    return monday.replace(hour=0, minute=0, second=0, microsecond=0)
-
-
-def get_month_start_moscow() -> datetime:
-    """Get start of current month in Moscow timezone"""
-    now = now_moscow()
-    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-
-def is_quiet_hours(start_hour: int, end_hour: int) -> bool:
-    """Check if current Moscow time is within quiet hours"""
-    if start_hour is None or end_hour is None:
-        return False
-    
-    current_hour = now_moscow().hour
-    
-    if start_hour <= end_hour:
-        # Same day range (e.g., 01:00 - 07:00)
-        return start_hour <= current_hour < end_hour
-    else:
-        # Overnight range (e.g., 23:00 - 07:00)
-        return current_hour >= start_hour or current_hour < end_hour
-
-
-def is_working_hours(start_hour: int = 10, end_hour: int = 22) -> bool:
-    """Check if current Moscow time is within working hours"""
-    current_hour = now_moscow().hour
-    return start_hour <= current_hour < end_hour
-
-
-def get_next_working_hour(start_hour: int = 10) -> datetime:
-    """Get next working hour start time"""
-    now = now_moscow()
-    
-    if now.hour >= start_hour:
-        # Next day
-        next_day = now + timedelta(days=1)
-        return next_day.replace(hour=start_hour, minute=0, second=0, microsecond=0)
-    else:
-        # Today
-        return now.replace(hour=start_hour, minute=0, second=0, microsecond=0)
-
-
-def seconds_until(target_hour: int, target_minute: int = 0) -> int:
-    """Calculate seconds until specific time today or tomorrow"""
-    now = now_moscow()
-    target = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
-    
-    if target <= now:
-        target += timedelta(days=1)
-    
-    return int((target - now).total_seconds())
-
-
-def get_day_name(day_index: int) -> str:
-    """Get Russian day name by index (0=Monday, 6=Sunday)"""
-    days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
-    return days[day_index] if 0 <= day_index <= 6 else ''
-
-
-def get_day_name_short(day_index: int) -> str:
-    """Get short Russian day name by index (0=Monday)"""
-    days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
-    return days[day_index] if 0 <= day_index <= 6 else ''
-
-
-def get_month_name(month: int) -> str:
-    """Get Russian month name"""
-    months = [
-        '', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-        'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
-    ]
-    return months[month] if 1 <= month <= 12 else ''
-
-
-def get_month_name_genitive(month: int) -> str:
-    """Get Russian month name in genitive case"""
-    months = [
-        '', 'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
-        'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
-    ]
-    return months[month] if 1 <= month <= 12 else ''
-
-
-def format_relative_time(dt: datetime) -> str:
-    """Format datetime as relative time (e.g., '5 минут назад')"""
+def format_relative(dt: datetime) -> str:
+    """Format relative time (e.g., '5 минут назад')"""
     if dt is None:
         return '-'
     
@@ -272,99 +104,307 @@ def format_relative_time(dt: datetime) -> str:
     moscow_dt = to_moscow(dt)
     diff = now - moscow_dt
     
+    if diff.total_seconds() < 0:
+        # Future
+        diff = -diff
+        prefix = "через "
+        suffix = ""
+    else:
+        prefix = ""
+        suffix = " назад"
+    
     seconds = int(diff.total_seconds())
     
-    if seconds < 0:
-        # Future
-        seconds = abs(seconds)
-        if seconds < 60:
-            return 'через несколько секунд'
-        elif seconds < 3600:
-            minutes = seconds // 60
-            return f'через {minutes} мин'
-        elif seconds < 86400:
-            hours = seconds // 3600
-            return f'через {hours} ч'
-        else:
-            days = seconds // 86400
-            return f'через {days} дн'
-    
-    # Past
     if seconds < 60:
-        return 'только что'
+        return f"{prefix}{seconds} сек{suffix}"
     elif seconds < 3600:
         minutes = seconds // 60
-        return f'{minutes} мин назад'
+        return f"{prefix}{minutes} мин{suffix}"
     elif seconds < 86400:
         hours = seconds // 3600
-        return f'{hours} ч назад'
-    elif seconds < 604800:
-        days = seconds // 86400
-        return f'{days} дн назад'
+        return f"{prefix}{hours} ч{suffix}"
     else:
-        return format_moscow(moscow_dt, '%d.%m.%Y')
+        days = seconds // 86400
+        return f"{prefix}{days} дн{suffix}"
 
 
-def is_today(dt: datetime) -> bool:
-    """Check if datetime is today (Moscow time)"""
-    if dt is None:
+# ==================== PARSING ====================
+
+def parse_datetime(dt_string: str) -> Optional[datetime]:
+    """Parse ISO datetime string to Moscow timezone"""
+    if not dt_string:
+        return None
+    try:
+        # Handle ISO format with Z
+        dt_string = dt_string.replace('Z', '+00:00')
+        dt = datetime.fromisoformat(dt_string)
+        return to_moscow(dt)
+    except Exception as e:
+        logger.error(f"parse_datetime error: {e}")
+        return None
+
+
+def parse_time_input(text: str) -> Optional[datetime]:
+    """
+    Parse user time input to datetime
+    Supports formats:
+    - HH:MM (today or tomorrow)
+    - DD.MM.YYYY HH:MM
+    - YYYY-MM-DD HH:MM
+    """
+    import re
+    text = text.strip()
+    now = now_moscow()
+    
+    try:
+        # Format: HH:MM
+        if re.match(r'^\d{1,2}:\d{2}$', text):
+            h, m = map(int, text.split(':'))
+            if h > 23 or m > 59:
+                return None
+            result = now.replace(hour=h, minute=m, second=0, microsecond=0)
+            if result <= now:
+                result += timedelta(days=1)
+            return result
+        
+        # Format: DD.MM.YYYY HH:MM
+        if re.match(r'^\d{1,2}\.\d{2}\.\d{4}\s+\d{1,2}:\d{2}$', text):
+            dt = datetime.strptime(text, '%d.%m.%Y %H:%M')
+            if HAS_PYTZ and MOSCOW_TZ:
+                dt = MOSCOW_TZ.localize(dt)
+            return dt
+        
+        # Format: YYYY-MM-DD HH:MM
+        if re.match(r'^\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}$', text):
+            dt = datetime.strptime(text, '%Y-%m-%d %H:%M')
+            if HAS_PYTZ and MOSCOW_TZ:
+                dt = MOSCOW_TZ.localize(dt)
+            return dt
+        
+        # Format: DD.MM HH:MM (current year)
+        if re.match(r'^\d{1,2}\.\d{2}\s+\d{1,2}:\d{2}$', text):
+            dt = datetime.strptime(f"{text} {now.year}", '%d.%m %H:%M %Y')
+            if HAS_PYTZ and MOSCOW_TZ:
+                dt = MOSCOW_TZ.localize(dt)
+            return dt
+        
+    except Exception as e:
+        logger.error(f"parse_time_input error: {e}")
+    
+    return None
+
+
+def parse_time_range(text: str) -> Optional[Tuple[time, time]]:
+    """
+    Parse time range (e.g., '09:00-18:00')
+    Returns tuple of (start_time, end_time)
+    """
+    import re
+    match = re.match(r'^(\d{1,2}):(\d{2})\s*[-–—]\s*(\d{1,2}):(\d{2})$', text.strip())
+    if not match:
+        return None
+    
+    sh, sm, eh, em = map(int, match.groups())
+    if sh > 23 or sm > 59 or eh > 23 or em > 59:
+        return None
+    
+    return (time(sh, sm), time(eh, em))
+
+
+# ==================== BUSINESS LOGIC ====================
+
+def is_quiet_hours(start: str, end: str) -> bool:
+    """
+    Check if current Moscow time is within quiet hours
+    start/end format: "HH:MM"
+    """
+    if not start or not end:
         return False
     
-    moscow_dt = to_moscow(dt)
-    today = now_moscow()
-    
-    return moscow_dt.date() == today.date()
-
-
-def is_yesterday(dt: datetime) -> bool:
-    """Check if datetime is yesterday (Moscow time)"""
-    if dt is None:
+    try:
+        now = now_moscow()
+        current = now.time()
+        
+        start_time = time(*map(int, start.split(':')))
+        end_time = time(*map(int, end.split(':')))
+        
+        # Handle overnight range (e.g., 23:00 - 08:00)
+        if start_time > end_time:
+            return current >= start_time or current <= end_time
+        else:
+            return start_time <= current <= end_time
+    except Exception as e:
+        logger.error(f"is_quiet_hours error: {e}")
         return False
+
+
+def get_next_active_time(start: str, end: str) -> datetime:
+    """
+    Get next datetime when quiet hours end
+    Returns datetime in Moscow timezone
+    """
+    if not start or not end:
+        return now_moscow()
     
-    moscow_dt = to_moscow(dt)
-    yesterday = now_moscow() - timedelta(days=1)
+    try:
+        now = now_moscow()
+        end_time = time(*map(int, end.split(':')))
+        
+        # Create datetime for today at end_time
+        result = now.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
+        
+        # If already passed today, move to tomorrow
+        if result <= now:
+            result += timedelta(days=1)
+        
+        return result
+    except Exception as e:
+        logger.error(f"get_next_active_time error: {e}")
+        return now_moscow()
+
+
+def is_working_hours(start_hour: int = 9, end_hour: int = 21) -> bool:
+    """Check if current Moscow time is within working hours"""
+    now = now_moscow()
+    return start_hour <= now.hour < end_hour
+
+
+def get_day_of_week() -> int:
+    """Get current day of week in Moscow (0=Monday, 6=Sunday)"""
+    return now_moscow().weekday()
+
+
+def is_weekend() -> bool:
+    """Check if today is weekend in Moscow"""
+    return get_day_of_week() >= 5
+
+
+DAY_NAMES_RU = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+DAY_NAMES_FULL = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
+
+
+def get_day_name(day: int, full: bool = False) -> str:
+    """Get Russian day name by number (0=Monday)"""
+    names = DAY_NAMES_FULL if full else DAY_NAMES_RU
+    return names[day % 7]
+
+
+# ==================== SCHEDULING ====================
+
+def get_optimal_time_slots(heatmap: Dict, count: int = 5) -> List[Dict]:
+    """
+    Get optimal time slots from heatmap data
+    heatmap format: {day: {hour: score}}
+    Returns list of {day, hour, score, day_name, formatted}
+    """
+    slots = []
     
-    return moscow_dt.date() == yesterday.date()
-
-
-def is_this_week(dt: datetime) -> bool:
-    """Check if datetime is within current week (Moscow time)"""
-    if dt is None:
-        return False
+    for day, hours in heatmap.items():
+        for hour, score in hours.items():
+            slots.append({
+                'day': int(day),
+                'hour': int(hour),
+                'score': float(score),
+                'day_name': DAY_NAMES_RU[int(day) % 7],
+                'formatted': f"{DAY_NAMES_RU[int(day) % 7]} {int(hour):02d}:00"
+            })
     
-    moscow_dt = to_moscow(dt)
-    week_start = get_week_start_moscow()
+    # Sort by score descending
+    slots.sort(key=lambda x: x['score'], reverse=True)
     
-    return moscow_dt >= week_start
+    return slots[:count]
 
 
-def days_between(dt1: datetime, dt2: datetime) -> int:
-    """Calculate days between two datetimes"""
-    if dt1 is None or dt2 is None:
-        return 0
+def get_next_slot_datetime(day: int, hour: int) -> datetime:
+    """
+    Get next occurrence of specific day and hour
+    day: 0=Monday, hour: 0-23
+    Returns datetime in Moscow timezone
+    """
+    now = now_moscow()
+    current_day = now.weekday()
     
-    d1 = to_moscow(dt1).date()
-    d2 = to_moscow(dt2).date()
+    # Days until target day
+    days_ahead = day - current_day
+    if days_ahead < 0:
+        days_ahead += 7
+    elif days_ahead == 0 and now.hour >= hour:
+        days_ahead = 7
     
-    return abs((d2 - d1).days)
+    target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    target += timedelta(days=days_ahead)
+    
+    return target
 
 
-def add_days(dt: datetime, days: int) -> datetime:
-    """Add days to datetime"""
-    if dt is None:
-        return None
-    return dt + timedelta(days=days)
+# ==================== SEASONAL ADJUSTMENTS ====================
+
+def get_seasonal_context() -> Dict:
+    """
+    Get seasonal context for behavior adjustments
+    Returns dict with seasonal info and adjustments
+    """
+    now = now_moscow()
+    month = now.month
+    day = now.day
+    
+    context = {
+        'season': 'normal',
+        'holiday': None,
+        'activity_multiplier': 1.0,
+        'tone': 'professional',
+        'emoji_boost': []
+    }
+    
+    # New Year period (Dec 25 - Jan 10)
+    if (month == 12 and day >= 25) or (month == 1 and day <= 10):
+        context.update({
+            'season': 'new_year',
+            'holiday': 'Новый Год',
+            'activity_multiplier': 0.5,
+            'tone': 'celebratory',
+            'emoji_boost': ['🎄', '🎁', '❄️', '🎉']
+        })
+    
+    # May holidays (May 1-10)
+    elif month == 5 and day <= 10:
+        context.update({
+            'season': 'may_holidays',
+            'holiday': 'Майские праздники',
+            'activity_multiplier': 0.6,
+            'tone': 'relaxed',
+            'emoji_boost': ['🌸', '☀️', '🎉']
+        })
+    
+    # Summer (June-August)
+    elif month in [6, 7, 8]:
+        context.update({
+            'season': 'summer',
+            'activity_multiplier': 0.8,
+            'tone': 'relaxed',
+            'emoji_boost': ['☀️', '🏖️']
+        })
+    
+    # Weekend adjustment
+    if is_weekend():
+        context['activity_multiplier'] *= 0.7
+        if context['tone'] == 'professional':
+            context['tone'] = 'relaxed'
+    
+    return context
 
 
-def add_hours(dt: datetime, hours: int) -> datetime:
-    """Add hours to datetime"""
-    if dt is None:
-        return None
-    return dt + timedelta(hours=hours)
-
-
-def add_minutes(dt: datetime, minutes: int) -> datetime:
-    """Add minutes to datetime"""
-    if dt is None:
-        return None
-    return dt + timedelta(minutes=minutes)
+def should_reduce_activity() -> bool:
+    """Check if activity should be reduced based on time/season"""
+    context = get_seasonal_context()
+    
+    # Reduce if multiplier is significantly lower
+    if context['activity_multiplier'] < 0.7:
+        return True
+    
+    # Reduce during night hours (00:00 - 07:00)
+    hour = now_moscow().hour
+    if 0 <= hour < 7:
+        return True
+    
+    return False
