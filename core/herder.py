@@ -1,6 +1,6 @@
 """
 Herder (Ботовод) Module - Intelligent Activity Simulation
-Version 1.1 — with account folders support and fixed duplicate message bug
+Version 1.2 — Full implementation with account folders and no duplicate messages
 """
 import logging
 from typing import List, Dict, Optional
@@ -14,10 +14,11 @@ from core.keyboards import (
     kb_herder_profile_actions, kb_herder_settings,
     kb_inline_monitored_channels, kb_inline_herder_assignments,
     kb_inline_herder_accounts, kb_inline_herder_strategies,
-    kb_inline_account_profiles, inline_keyboard
+    kb_inline_account_profiles, inline_keyboard, reply_keyboard
 )
 from core.menu import show_main_menu, BTN_CANCEL, BTN_BACK, BTN_MAIN_MENU
 logger = logging.getLogger(__name__)
+
 # Button constants
 BTN_NEW_ASSIGNMENT = '➕ Новое задание'
 BTN_MY_ASSIGNMENTS = '📋 Мои задания'
@@ -26,6 +27,7 @@ BTN_HERDER_ACCOUNTS = '👥 Аккаунты'
 BTN_HERDER_PROFILES = '🧠 Профили ИИ'
 BTN_HERDER_STRATEGIES = '🎯 Стратегии'
 BTN_HERDER_SETTINGS = '⚙️ Настройки'
+
 # Strategy constants
 STRATEGIES = {
     'observer': {
@@ -59,6 +61,7 @@ STRATEGIES = {
         'max_daily_actions': 30
     }
 }
+
 ROLE_EMOJI = {
     'observer': '📖',
     'expert': '🧠',
@@ -66,10 +69,11 @@ ROLE_EMOJI = {
     'trendsetter': '🔥',
     'community': '👥'
 }
+
+
 def show_herder_menu(chat_id: int, user_id: int):
     """Show herder main menu"""
     DB.set_user_state(user_id, 'herder:menu')
-    # Get stats
     assignments = DB.get_herder_assignments(user_id)
     active = len([a for a in assignments if a.get('status') == 'active'])
     channels = DB.count_monitored_channels(user_id)
@@ -85,9 +89,10 @@ def show_herder_menu(chat_id: int, user_id: int):
         f"Выберите действие:",
         kb_herder_menu()
     )
+
+
 def handle_herder(chat_id: int, user_id: int, text: str, state: str, saved: dict) -> bool:
     """Handle herder states. Returns True if handled."""
-    # Navigation
     if text == BTN_CANCEL:
         show_main_menu(chat_id, user_id, "❌ Действие отменено")
         return True
@@ -97,10 +102,9 @@ def handle_herder(chat_id: int, user_id: int, text: str, state: str, saved: dict
     if text == BTN_BACK:
         _handle_back(chat_id, user_id, state, saved)
         return True
-    # Menu state
+
     if state == 'herder:menu':
         return _handle_menu(chat_id, user_id, text)
-    # New assignment flow
     if state == 'herder:new:channel':
         return _handle_new_channel(chat_id, user_id, text, saved)
     if state == 'herder:new:accounts':
@@ -119,29 +123,25 @@ def handle_herder(chat_id: int, user_id: int, text: str, state: str, saved: dict
         return _handle_new_delay(chat_id, user_id, text, saved)
     if state == 'herder:new:confirm':
         return _handle_new_confirm(chat_id, user_id, text, saved)
-    # Assignment view
     if state.startswith('herder:assignment:'):
         return _handle_assignment_view(chat_id, user_id, text, state, saved)
-    # Profiles
     if state == 'herder:profiles':
         return _handle_profiles_menu(chat_id, user_id, text)
     if state.startswith('herder:profile:'):
         return _handle_profile_view(chat_id, user_id, text, state, saved)
     if state == 'herder:profile:create':
         return _handle_profile_create(chat_id, user_id, text, saved)
-    # Stats
     if state == 'herder:stats':
         return _handle_stats(chat_id, user_id, text)
-    # Settings
     if state == 'herder:settings':
         return _handle_settings(chat_id, user_id, text, saved)
     return False
+
+
 def _handle_back(chat_id: int, user_id: int, state: str, saved: dict):
-    """Handle back navigation"""
     if state in ['herder:menu', 'herder:new:channel']:
         show_main_menu(chat_id, user_id)
     elif state.startswith('herder:new:'):
-        # Go back in creation flow
         steps = ['channel', 'accounts', 'strategy', 'actions', 'reactions', 'priority', 'comments', 'delay', 'confirm']
         current = state.split(':')[-1]
         if current in steps:
@@ -155,8 +155,9 @@ def _handle_back(chat_id: int, user_id: int, state: str, saved: dict):
         show_herder_menu(chat_id, user_id)
     else:
         show_herder_menu(chat_id, user_id)
+
+
 def _handle_menu(chat_id: int, user_id: int, text: str) -> bool:
-    """Handle main menu selection"""
     if text == BTN_NEW_ASSIGNMENT:
         start_new_assignment(chat_id, user_id)
         return True
@@ -179,9 +180,11 @@ def _handle_menu(chat_id: int, user_id: int, text: str) -> bool:
         show_assignments_list(chat_id, user_id)
         return True
     return False
+
+
 # ==================== NEW ASSIGNMENT FLOW ====================
+
 def start_new_assignment(chat_id: int, user_id: int):
-    """Start new assignment creation"""
     DB.set_user_state(user_id, 'herder:new:channel', {})
     send_message(chat_id,
         "➕ <b>Новое задание Ботовода</b>\n"
@@ -193,12 +196,12 @@ def start_new_assignment(chat_id: int, user_id: int):
         "⚠️ Канал должен быть публичным",
         kb_back_cancel()
     )
+
+
 def _handle_new_channel(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle channel input"""
-    # Clean up channel link
     channel = text.strip()
     channel = channel.replace('https://t.me/', '').replace('t.me/', '').replace('@', '')
-    channel = channel.split('/')[0]  # Remove any trailing parts
+    channel = channel.split('/')[0]
     if not channel or len(channel) < 3:
         send_message(chat_id,
             "❌ Неверный формат канала\n"
@@ -206,15 +209,13 @@ def _handle_new_channel(chat_id: int, user_id: int, text: str, saved: dict) -> b
             kb_back_cancel()
         )
         return True
-    # Check if already monitored
+
     existing = DB.get_monitored_channel_by_username(user_id, channel)
     if existing:
-        # Use existing channel
         saved['channel_id'] = existing['id']
         saved['channel_username'] = existing['channel_username']
         saved['channel_title'] = existing.get('title', f"@{channel}")
     else:
-        # Create new monitored channel
         new_channel = DB.create_monitored_channel(user_id, channel)
         if not new_channel:
             send_message(chat_id, "❌ Ошибка добавления канала", kb_back_cancel())
@@ -222,37 +223,38 @@ def _handle_new_channel(chat_id: int, user_id: int, text: str, saved: dict) -> b
         saved['channel_id'] = new_channel['id']
         saved['channel_username'] = channel
         saved['channel_title'] = f"@{channel}"
+
     saved['selected_accounts'] = []
     DB.set_user_state(user_id, 'herder:new:accounts', saved)
-    # Get available accounts with folders
+
+    # Get accounts grouped by folders
     folders = DB.get_account_folders(user_id)
-    accounts = DB.get_accounts_without_folder(user_id)
+    accounts_no_folder = DB.get_accounts_without_folder(user_id)
+
     all_accounts = []
     if folders:
-        all_accounts.append({'type': 'header', 'text': '📁 Папки'})
         for folder in folders:
-            accs_in_folder = DB.get_accounts_in_folder(folder['id'])
-            for acc in accs_in_folder:
+            accs = DB.get_accounts_in_folder(folder['id'])
+            for acc in accs:
                 acc['profile'] = DB.get_account_profile(acc['id'])
                 all_accounts.append(acc)
-    if accounts:
-        all_accounts.append({'type': 'header', 'text': '📁 Без папки'})
-        for acc in accounts:
+    if accounts_no_folder:
+        for acc in accounts_no_folder:
             acc['profile'] = DB.get_account_profile(acc['id'])
             all_accounts.append(acc)
-    # Show selection keyboard
+
     send_message(chat_id,
         f"✅ Канал: <b>{saved['channel_title']}</b>\n"
         f"<b>Шаг 2/8:</b> Выберите аккаунты\n"
-        f"Доступно аккаунтов: {len([a for a in all_accounts if a.get('id')])}\n"
+        f"Доступно аккаунтов: <b>{len(all_accounts)}</b>\n"
         f"Нажмите на аккаунты для выбора:",
-        kb_inline_herder_accounts([a for a in all_accounts if a.get('id')], saved['selected_accounts'])
+        kb_inline_herder_accounts(all_accounts, saved['selected_accounts'])
     )
     return True
+
+
 def _handle_new_accounts(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle accounts selection"""
-    # Main selection via callbacks
-    if text == '➡️ Далее' or text == 'Далее':
+    if text == '➡️ Далее':
         if not saved.get('selected_accounts'):
             send_message(chat_id, "❌ Выберите хотя бы один аккаунт", kb_back_cancel())
             return True
@@ -260,8 +262,9 @@ def _handle_new_accounts(chat_id: int, user_id: int, text: str, saved: dict) -> 
         _show_strategy_selection(chat_id, user_id, saved)
         return True
     return True
+
+
 def _show_strategy_selection(chat_id: int, user_id: int, saved: dict):
-    """Show strategy selection"""
     send_message(chat_id,
         f"<b>Шаг 3/8:</b> Выберите стратегию\n"
         f"📖 <b>Наблюдатель</b> — только чтение и 👍\n"
@@ -271,8 +274,9 @@ def _show_strategy_selection(chat_id: int, user_id: int, saved: dict):
         f"👥 <b>Комьюнити</b> — координированные обсуждения",
         kb_herder_strategy()
     )
+
+
 def _handle_new_strategy(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle strategy selection"""
     strategy_map = {
         '📖 Наблюдатель': 'observer',
         '🧠 Эксперт': 'expert',
@@ -285,12 +289,13 @@ def _handle_new_strategy(chat_id: int, user_id: int, text: str, saved: dict) -> 
         send_message(chat_id, "❌ Выберите стратегию из списка", kb_herder_strategy())
         return True
     saved['strategy'] = strategy
-    saved['actions'] = ['read']  # Default action
+    saved['actions'] = ['read']
     DB.set_user_state(user_id, 'herder:new:actions', saved)
     _show_actions_constructor(chat_id, user_id, saved)
     return True
+
+
 def _show_actions_constructor(chat_id: int, user_id: int, saved: dict):
-    """Show actions constructor"""
     current_actions = saved.get('actions', ['read'])
     actions_text = ' → '.join([
         {'read': '📖 Чтение', 'react': '👍 Реакция', 'comment': '💬 Комментарий', 'save': '💾 Сохранение'}.get(a, a)
@@ -302,8 +307,9 @@ def _show_actions_constructor(chat_id: int, user_id: int, saved: dict):
         f"Добавьте действия или нажмите «✅ Готово»:",
         kb_herder_actions_constructor()
     )
+
+
 def _handle_new_actions(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle actions constructor"""
     actions = saved.get('actions', ['read'])
     if text == '📖 Чтение':
         if 'read' not in actions:
@@ -325,25 +331,25 @@ def _handle_new_actions(chat_id: int, user_id: int, text: str, saved: dict) -> b
             actions.append('save')
     elif text == '✅ Готово':
         saved['actions'] = actions
-        # Next step depends on whether reactions are selected
         if saved.get('need_reactions'):
             saved['reactions'] = ['👍']
             DB.set_user_state(user_id, 'herder:new:reactions', saved)
             _show_reactions_selection(chat_id, user_id, saved)
         else:
-            saved['actions'] = actions
             DB.set_user_state(user_id, 'herder:new:priority', saved)
             _show_priority_selection(chat_id, user_id, saved)
         return True
     else:
         _show_actions_constructor(chat_id, user_id, saved)
         return True
+
     saved['actions'] = actions
     DB.set_user_state(user_id, 'herder:new:actions', saved)
     _show_actions_constructor(chat_id, user_id, saved)
     return True
+
+
 def _show_reactions_selection(chat_id: int, user_id: int, saved: dict):
-    """Show reactions selection"""
     current = saved.get('reactions', ['👍'])
     send_message(chat_id,
         f"<b>Шаг 5/8:</b> Выберите реакции\n"
@@ -351,8 +357,9 @@ def _show_reactions_selection(chat_id: int, user_id: int, saved: dict):
         f"Нажмите на эмодзи для добавления/удаления:",
         kb_herder_reactions()
     )
+
+
 def _handle_new_reactions(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle reactions selection"""
     reactions = saved.get('reactions', ['👍'])
     available = ['👍', '❤️', '🔥', '😢', '😡', '🤔', '🎉', '👏', '🤝']
     if text in available:
@@ -368,13 +375,13 @@ def _handle_new_reactions(chat_id: int, user_id: int, text: str, saved: dict) ->
         if not reactions:
             reactions = ['👍']
         saved['reactions'] = reactions
-        saved['actions'] = saved.get('actions', ['read'])
         DB.set_user_state(user_id, 'herder:new:priority', saved)
         _show_priority_selection(chat_id, user_id, saved)
         return True
-    return False
+    return True
+
+
 def _show_priority_selection(chat_id: int, user_id: int, saved: dict):
-    """Show priority selection"""
     send_message(chat_id,
         f"<b>Шаг 6/8:</b> Выберите приоритет канала\n"
         f"🔼 <b>Высокий</b> — быстрая реакция, больше действий\n"
@@ -382,19 +389,15 @@ def _show_priority_selection(chat_id: int, user_id: int, saved: dict):
         f"🔽 <b>Низкий</b> — редкие действия, экономия лимитов",
         kb_herder_priority()
     )
+
+
 def _handle_new_priority(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle priority selection"""
-    priority_map = {
-        '🔽 Низкий': 1,
-        '➖ Средний': 3,
-        '🔼 Высокий': 5
-    }
+    priority_map = {'🔽 Низкий': 1, '➖ Средний': 3, '🔼 Высокий': 5}
     priority = priority_map.get(text)
     if priority is None:
         send_message(chat_id, "❌ Выберите приоритет из списка", kb_herder_priority())
         return True
     saved['priority'] = priority
-    # If strategy allows comments, ask about limit
     if 'comment' in saved.get('actions', []):
         DB.set_user_state(user_id, 'herder:new:comments', saved)
         _show_comments_limit(chat_id, user_id, saved)
@@ -403,20 +406,19 @@ def _handle_new_priority(chat_id: int, user_id: int, text: str, saved: dict) -> 
         DB.set_user_state(user_id, 'herder:new:delay', saved)
         _show_delay_selection(chat_id, user_id, saved)
     return True
+
+
 def _show_comments_limit(chat_id: int, user_id: int, saved: dict):
-    """Show comments limit selection"""
     send_message(chat_id,
         f"<b>Шаг 7/8:</b> Лимит комментариев\n"
         f"Сколько комментариев в день на аккаунт?\n"
         f"⚠️ Рекомендуется 1-2 для безопасности",
         kb_herder_comments_limit()
     )
+
+
 def _handle_new_comments(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle comments limit"""
-    limit_map = {
-        '1': 1, '2': 2, '3': 3, '5': 5,
-        '🚫 Без комментариев': 0
-    }
+    limit_map = {'1': 1, '2': 2, '3': 3, '5': 5, '🚫 Без комментариев': 0}
     limit = limit_map.get(text)
     if limit is None:
         send_message(chat_id, "❌ Выберите лимит из списка", kb_herder_comments_limit())
@@ -428,26 +430,25 @@ def _handle_new_comments(chat_id: int, user_id: int, text: str, saved: dict) -> 
     DB.set_user_state(user_id, 'herder:new:delay', saved)
     _show_delay_selection(chat_id, user_id, saved)
     return True
+
+
 def _show_delay_selection(chat_id: int, user_id: int, saved: dict):
-    """Show delay selection"""
     send_message(chat_id,
         f"<b>Шаг 8/8:</b> Задержка после публикации\n"
         f"Через сколько начинать действия после нового поста?\n"
         f"⚠️ Большая задержка = естественнее поведение",
         kb_herder_delay()
     )
+
+
 def _handle_new_delay(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle delay selection"""
     delay_map = {
         '5-60 мин': [300, 3600],
         '30-180 мин': [1800, 10800],
         '60-360 мин': [3600, 21600]
     }
     if text == '📝 Свой':
-        send_message(chat_id,
-            "Введите диапазон в минутах (например: 10-120):",
-            kb_back_cancel()
-        )
+        send_message(chat_id, "Введите диапазон в минутах (например: 10-120):", kb_back_cancel())
         saved['custom_delay'] = True
         DB.set_user_state(user_id, 'herder:new:delay', saved)
         return True
@@ -471,8 +472,9 @@ def _handle_new_delay(chat_id: int, user_id: int, text: str, saved: dict) -> boo
     DB.set_user_state(user_id, 'herder:new:confirm', saved)
     _show_confirmation(chat_id, user_id, saved)
     return True
+
+
 def _show_confirmation(chat_id: int, user_id: int, saved: dict):
-    """Show assignment confirmation"""
     strategy_name = STRATEGIES.get(saved.get('strategy', 'observer'), {}).get('name', 'Неизвестно')
     actions_text = ', '.join([
         {'read': 'чтение', 'react': 'реакции', 'comment': 'комментарии', 'save': 'сохранение'}.get(a, a)
@@ -496,10 +498,10 @@ def _show_confirmation(chat_id: int, user_id: int, saved: dict):
         f"только для своих каналов или с разрешения владельца.",
         kb_confirm()
     )
+
+
 def _handle_new_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle confirmation"""
     if text == '✅ Подтвердить':
-        # Build action chain
         action_chain = []
         delay = saved.get('delay', [300, 3600])
         for action in saved.get('actions', ['read']):
@@ -516,7 +518,7 @@ def _handle_new_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> b
             elif action == 'save':
                 chain_item['probability'] = 0.3
             action_chain.append(chain_item)
-        # Build settings
+
         settings = {
             'max_comments_per_day': saved.get('max_comments', 2),
             'delay_after_post': saved.get('delay', [300, 3600]),
@@ -525,9 +527,8 @@ def _handle_new_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> b
             'seasonal_behavior': True,
             'reactions': saved.get('reactions', ['👍'])
         }
-        # Update channel priority
+
         DB.update_monitored_channel(saved['channel_id'], priority=saved.get('priority', 3))
-        # Create assignment
         assignment = DB.create_herder_assignment(
             user_id=user_id,
             channel_id=saved['channel_id'],
@@ -552,32 +553,30 @@ def _handle_new_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> b
         show_herder_menu(chat_id, user_id)
         return True
     return False
+
+
 def _show_step(chat_id: int, user_id: int, step: str, saved: dict):
-    """Show specific step"""
     if step == 'channel':
         start_new_assignment(chat_id, user_id)
     elif step == 'accounts':
-        # Get available accounts with folders
         folders = DB.get_account_folders(user_id)
-        accounts = DB.get_accounts_without_folder(user_id)
+        accounts_no_folder = DB.get_accounts_without_folder(user_id)
         all_accounts = []
         if folders:
-            all_accounts.append({'type': 'header', 'text': '📁 Папки'})
             for folder in folders:
-                accs_in_folder = DB.get_accounts_in_folder(folder['id'])
-                for acc in accs_in_folder:
+                accs = DB.get_accounts_in_folder(folder['id'])
+                for acc in accs:
                     acc['profile'] = DB.get_account_profile(acc['id'])
                     all_accounts.append(acc)
-        if accounts:
-            all_accounts.append({'type': 'header', 'text': '📁 Без папки'})
-            for acc in accounts:
+        if accounts_no_folder:
+            for acc in accounts_no_folder:
                 acc['profile'] = DB.get_account_profile(acc['id'])
                 all_accounts.append(acc)
         send_message(chat_id,
             f"<b>Шаг 2/8:</b> Выберите аккаунты\n"
-            f"Доступно аккаунтов: {len([a for a in all_accounts if a.get('id')])}\n"
+            f"Доступно аккаунтов: <b>{len(all_accounts)}</b>\n"
             f"Нажмите на аккаунты для выбора:",
-            kb_inline_herder_accounts([a for a in all_accounts if a.get('id')], saved.get('selected_accounts', []))
+            kb_inline_herder_accounts(all_accounts, saved.get('selected_accounts', []))
         )
     elif step == 'strategy':
         _show_strategy_selection(chat_id, user_id, saved)
@@ -593,10 +592,11 @@ def _show_step(chat_id: int, user_id: int, step: str, saved: dict):
         _show_delay_selection(chat_id, user_id, saved)
     elif step == 'confirm':
         _show_confirmation(chat_id, user_id, saved)
-# ==================== ОСТАЛЬНЫЕ ФУНКЦИИ — ASSIGNMENTS, PROFILES, STATS, SETTINGS ====================
-# (полный код без изменений из оригинального herder.py, за исключением исправлений выше)
+
+
+# ==================== ASSIGNMENTS VIEWS ====================
+
 def show_assignments_list(chat_id: int, user_id: int):
-    """Show list of assignments"""
     DB.set_user_state(user_id, 'herder:assignments')
     assignments = DB.get_herder_assignments(user_id)
     if not assignments:
@@ -610,8 +610,9 @@ def show_assignments_list(chat_id: int, user_id: int):
         kb = kb_inline_herder_assignments(assignments)
         send_message(chat_id, "📋 <b>Мои задания:</b>\nВыберите задание:", kb)
         send_message(chat_id, "👆 Выберите выше или:", kb_herder_menu())
+
+
 def show_assignment_view(chat_id: int, user_id: int, assignment_id: int):
-    """Show assignment details"""
     assignment = DB.get_herder_assignment(assignment_id)
     if not assignment:
         send_message(chat_id, "❌ Задание не найдено", kb_herder_menu())
@@ -638,8 +639,9 @@ def show_assignment_view(chat_id: int, user_id: int, assignment_id: int):
         f"└ Реакции: {' '.join(settings.get('reactions', ['👍']))}",
         kb_herder_assignment_actions(assignment['status'])
     )
+
+
 def _handle_assignment_view(chat_id: int, user_id: int, text: str, state: str, saved: dict) -> bool:
-    """Handle assignment view actions"""
     assignment_id = int(state.split(':')[2])
     if text == '⏸ Приостановить':
         DB.pause_herder_assignment(assignment_id)
@@ -676,8 +678,9 @@ def _handle_assignment_view(chat_id: int, user_id: int, text: str, state: str, s
         show_assignments_list(chat_id, user_id)
         return True
     return False
+
+
 def show_assignment_logs(chat_id: int, user_id: int, assignment_id: int):
-    """Show assignment logs"""
     logs = DB.get_herder_logs(user_id, limit=20, assignment_id=assignment_id)
     if not logs:
         send_message(chat_id, "📊 Логов пока нет", kb_herder_menu())
@@ -689,8 +692,11 @@ def show_assignment_logs(chat_id: int, user_id: int, assignment_id: int):
         created = log.get('created_at', '')[:16].replace('T', ' ')
         text += f"{action}{status} {created}\n"
     send_message(chat_id, text, kb_herder_assignment_actions('active'))
+
+
+# ==================== PROFILES & SETTINGS ====================
+
 def show_profiles_menu(chat_id: int, user_id: int):
-    """Show profiles menu"""
     DB.set_user_state(user_id, 'herder:profiles')
     profiles = DB.get_all_account_profiles(user_id)
     with_profile = len([p for p in profiles if p.get('profile')])
@@ -701,8 +707,9 @@ def show_profiles_menu(chat_id: int, user_id: int):
         f"📊 Аккаунтов с профилем: <b>{with_profile}</b> из {len(profiles)}",
         kb_herder_profiles_menu()
     )
+
+
 def _handle_profiles_menu(chat_id: int, user_id: int, text: str) -> bool:
-    """Handle profiles menu"""
     if text == '📋 Список профилей':
         profiles = DB.get_all_account_profiles(user_id)
         if not profiles:
@@ -712,19 +719,16 @@ def _handle_profiles_menu(chat_id: int, user_id: int, text: str) -> bool:
         send_message(chat_id, "🧠 <b>Профили аккаунтов:</b>", kb)
         return True
     if text == '➕ Создать профиль':
-        send_message(chat_id,
-            "Выберите аккаунт для создания профиля:",
-            kb_inline_account_profiles(DB.get_all_account_profiles(user_id))
-        )
+        profiles = DB.get_all_account_profiles(user_id)
+        kb = kb_inline_account_profiles(profiles)
+        send_message(chat_id, "Выберите аккаунт для создания профиля:", kb)
         return True
     if text == '🎲 Сгенерировать':
-        # Generate profiles for all accounts without one
         profiles = DB.get_all_account_profiles(user_id)
         generated = 0
         for p in profiles:
             if not p.get('profile'):
                 acc = p.get('account', {})
-                # Create default profile
                 DB.create_account_profile(acc['id'], {
                     'persona': 'Пользователь Telegram',
                     'role': 'observer',
@@ -737,32 +741,32 @@ def _handle_profiles_menu(chat_id: int, user_id: int, text: str) -> bool:
         send_message(chat_id, f"✅ Создано профилей: {generated}", kb_herder_profiles_menu())
         return True
     if text == '📊 Эффективность':
-        show_profiles_effectiveness(chat_id, user_id)
+        stats = DB.get_herder_stats(user_id, days=30)
+        send_message(chat_id,
+            f"📊 <b>Эффективность профилей</b>\n"
+            f"За последние 30 дней:\n"
+            f"├ Всего действий: {stats['total_actions']}\n"
+            f"├ Успешных: {stats['success_count']}\n"
+            f"├ Комментариев: {stats['total_comments']}\n"
+            f"├ Удалено: {stats['deleted_comments']}\n"
+            f"└ Успешность: {stats['success_rate']:.1f}%\n"
+            f"<b>По типам действий:</b>\n" +
+            '\n'.join([f"├ {k}: {v}" for k, v in stats.get('by_type', {}).items()]),
+            kb_herder_profiles_menu()
+        )
         return True
     return False
-def show_profiles_effectiveness(chat_id: int, user_id: int):
-    """Show profiles effectiveness stats"""
-    stats = DB.get_herder_stats(user_id, days=30)
-    send_message(chat_id,
-        f"📊 <b>Эффективность профилей</b>\n"
-        f"За последние 30 дней:\n"
-        f"├ Всего действий: {stats['total_actions']}\n"
-        f"├ Успешных: {stats['success_count']}\n"
-        f"├ Комментариев: {stats['total_comments']}\n"
-        f"├ Удалено: {stats['deleted_comments']}\n"
-        f"└ Успешность: {stats['success_rate']:.1f}%\n"
-        f"<b>По типам действий:</b>\n" +
-        '\n'.join([f"├ {k}: {v}" for k, v in stats.get('by_type', {}).items()]),
-        kb_herder_profiles_menu()
-    )
+
+
 def _handle_profile_view(chat_id: int, user_id: int, text: str, state: str, saved: dict) -> bool:
-    """Handle profile view"""
     return False
+
+
 def _handle_profile_create(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle profile creation"""
     return False
+
+
 def show_strategies_info(chat_id: int, user_id: int):
-    """Show strategies info"""
     text = "🎯 <b>Стратегии Ботовода</b>\n"
     for sid, s in STRATEGIES.items():
         text += f"{s['name']}\n"
@@ -770,8 +774,9 @@ def show_strategies_info(chat_id: int, user_id: int):
         text += f"   Действий/день: до {s['max_daily_actions']}\n"
         text += f"   Комментарии: {'✅' if s['can_comment'] else '❌'}\n"
     send_message(chat_id, text, kb_herder_menu())
+
+
 def show_herder_stats(chat_id: int, user_id: int):
-    """Show herder statistics"""
     DB.set_user_state(user_id, 'herder:stats')
     stats_7 = DB.get_herder_stats(user_id, days=7)
     stats_30 = DB.get_herder_stats(user_id, days=30)
@@ -793,13 +798,14 @@ def show_herder_stats(chat_id: int, user_id: int):
         f"└ Всего записей: {knowledge['total']}",
         kb_herder_menu()
     )
+
+
 def _handle_stats(chat_id: int, user_id: int, text: str) -> bool:
-    """Handle stats view"""
     show_herder_menu(chat_id, user_id)
     return True
+
+
 def show_herder_settings(chat_id: int, user_id: int):
-    """Show herder settings """
-    DB.set_user_state(user_id, 'herder:settings', {})
     settings = DB.get_user_settings(user_id)
     herder = settings.get('herder_settings', {})
     strategy = STRATEGIES.get(herder.get('default_strategy', 'observer'), {}).get('name', 'Наблюдатель')
@@ -816,14 +822,14 @@ def show_herder_settings(chat_id: int, user_id: int):
         f"🔇 Тихий режим (порог): <b>{quiet_threshold}</b> подписчиков",
         kb_herder_settings()
     )
+
+
 def _handle_settings(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle settings"""
     if text == '🎯 Стратегия по умолчанию':
         send_message(chat_id, "Выберите стратегию:", kb_herder_strategy())
         saved['setting'] = 'default_strategy'
         DB.set_user_state(user_id, 'herder:settings', saved)
         return True
-    # Handle strategy selection
     strategy_map = {
         '📖 Наблюдатель': 'observer',
         '🧠 Эксперт': 'expert',
@@ -840,14 +846,15 @@ def _handle_settings(chat_id: int, user_id: int, text: str, saved: dict) -> bool
         show_herder_settings(chat_id, user_id)
         return True
     return False
+
+
 # ==================== CALLBACK HANDLER ====================
-def handle_herder_callback(chat_id: int, msg_id: int, user_id: int,  str) -> bool:
-    """Handle herder inline callbacks"""
-    # Account selection for new assignment
+
+def handle_herder_callback(chat_id: int, msg_id: int, user_id: int, data: str) -> bool:
     if data.startswith('hselacc:'):
         account_id = int(data.split(':')[1])
         state_data = DB.get_user_state(user_id)
-        if not state_
+        if not state_data:
             return True
         saved = state_data.get('data', {})
         selected = saved.get('selected_accounts', [])
@@ -857,88 +864,89 @@ def handle_herder_callback(chat_id: int, msg_id: int, user_id: int,  str) -> boo
             selected.append(account_id)
         saved['selected_accounts'] = selected
         DB.set_user_state(user_id, state_data.get('state', 'herder:new:accounts'), saved)
-        # Update keyboard with accounts grouped by folders
+
         folders = DB.get_account_folders(user_id)
-        accounts = DB.get_accounts_without_folder(user_id)
+        accounts_no_folder = DB.get_accounts_without_folder(user_id)
         all_accounts = []
         if folders:
-            all_accounts.append({'type': 'header', 'text': '📁 Папки'})
-            for folder in folders:
-                accs_in_folder = DB.get_accounts_in_folder(folder['id'])
-                for acc in accs_in_folder:
-                    acc['profile'] = DB.get_account_profile(acc['id'])
-                    all_accounts.append(acc)
-        if accounts:
-            all_accounts.append({'type': 'header', 'text': '📁 Без папки'})
-            for acc in accounts:
-                acc['profile'] = DB.get_account_profile(acc['id'])
-                all_accounts.append(acc)
-        edit_message(chat_id, msg_id,
-            f"<b>Шаг 2/8:</b> Выберите аккаунты\n"
-            f"Выбрано: {len(selected)}",
-            kb_inline_herder_accounts([a for a in all_accounts if a.get('id')], selected)
-        )
-        return True
-    if data == 'hselall':
-        state_data = DB.get_user_state(user_id)
-        saved = state_data.get('data', {}) if state_data else {}
-        # Get all account IDs
-        folders = DB.get_account_folders(user_id)
-        accounts = DB.get_accounts_without_folder(user_id)
-        all_ids = []
-        for folder in folders:
-            accs = DB.get_accounts_in_folder(folder['id'])
-            all_ids.extend([a['id'] for a in accs])
-        all_ids.extend([a['id'] for a in accounts])
-        saved['selected_accounts'] = all_ids
-        DB.set_user_state(user_id, state_data.get('state', 'herder:new:accounts') if state_data else 'herder:new:accounts', saved)
-        # Update keyboard
-        all_accounts = []
-        if folders:
-            all_accounts.append({'type': 'header', 'text': '📁 Папки'})
             for folder in folders:
                 accs = DB.get_accounts_in_folder(folder['id'])
                 for acc in accs:
                     acc['profile'] = DB.get_account_profile(acc['id'])
                     all_accounts.append(acc)
-        if accounts:
-            all_accounts.append({'type': 'header', 'text': '📁 Без папки'})
-            for acc in accounts:
+        if accounts_no_folder:
+            for acc in accounts_no_folder:
                 acc['profile'] = DB.get_account_profile(acc['id'])
                 all_accounts.append(acc)
+
+        edit_message(chat_id, msg_id,
+            f"<b>Шаг 2/8:</b> Выберите аккаунты\n"
+            f"Выбрано: {len(selected)}",
+            kb_inline_herder_accounts(all_accounts, selected)
+        )
+        return True
+
+    if data == 'hselall':
+        state_data = DB.get_user_state(user_id)
+        saved = state_data.get('data', {}) if state_data else {}
+        folders = DB.get_account_folders(user_id)
+        accounts_no_folder = DB.get_accounts_without_folder(user_id)
+        all_ids = []
+        for folder in folders:
+            accs = DB.get_accounts_in_folder(folder['id'])
+            all_ids.extend([a['id'] for a in accs])
+        all_ids.extend([a['id'] for a in accounts_no_folder])
+        saved['selected_accounts'] = all_ids
+        DB.set_user_state(user_id, state_data.get('state', 'herder:new:accounts') if state_data else 'herder:new:accounts', saved)
+
+        folders = DB.get_account_folders(user_id)
+        accounts_no_folder = DB.get_accounts_without_folder(user_id)
+        all_accounts = []
+        if folders:
+            for folder in folders:
+                accs = DB.get_accounts_in_folder(folder['id'])
+                for acc in accs:
+                    acc['profile'] = DB.get_account_profile(acc['id'])
+                    all_accounts.append(acc)
+        if accounts_no_folder:
+            for acc in accounts_no_folder:
+                acc['profile'] = DB.get_account_profile(acc['id'])
+                all_accounts.append(acc)
+
         edit_message(chat_id, msg_id,
             f"<b>Шаг 2/8:</b> Выберите аккаунты\n"
             f"Выбрано: {len(all_ids)}",
-            kb_inline_herder_accounts([a for a in all_accounts if a.get('id')], all_ids)
+            kb_inline_herder_accounts(all_accounts, all_ids)
         )
         return True
+
     if data == 'hselclear':
         state_data = DB.get_user_state(user_id)
         saved = state_data.get('data', {}) if state_data else {}
         saved['selected_accounts'] = []
         DB.set_user_state(user_id, state_data.get('state', 'herder:new:accounts') if state_data else 'herder:new:accounts', saved)
-        # Update keyboard
+
         folders = DB.get_account_folders(user_id)
-        accounts = DB.get_accounts_without_folder(user_id)
+        accounts_no_folder = DB.get_accounts_without_folder(user_id)
         all_accounts = []
         if folders:
-            all_accounts.append({'type': 'header', 'text': '📁 Папки'})
             for folder in folders:
                 accs = DB.get_accounts_in_folder(folder['id'])
                 for acc in accs:
                     acc['profile'] = DB.get_account_profile(acc['id'])
                     all_accounts.append(acc)
-        if accounts:
-            all_accounts.append({'type': 'header', 'text': '📁 Без папки'})
-            for acc in accounts:
+        if accounts_no_folder:
+            for acc in accounts_no_folder:
                 acc['profile'] = DB.get_account_profile(acc['id'])
                 all_accounts.append(acc)
+
         edit_message(chat_id, msg_id,
             f"<b>Шаг 2/8:</b> Выберите аккаунты\n"
             f"Выбрано: 0",
-            kb_inline_herder_accounts([a for a in all_accounts if a.get('id')], [])
+            kb_inline_herder_accounts(all_accounts, [])
         )
         return True
+
     if data == 'hselnext':
         state_data = DB.get_user_state(user_id)
         saved = state_data.get('data', {}) if state_data else {}
@@ -946,7 +954,7 @@ def handle_herder_callback(chat_id: int, msg_id: int, user_id: int,  str) -> boo
             answer_callback(data, "Выберите хотя бы один аккаунт")
             return True
         DB.set_user_state(user_id, 'herder:new:strategy', saved)
-                _show_strategy_selection(chat_id, user_id, saved)
+        _show_strategy_selection(chat_id, user_id, saved)
         return True
 
     # Assignment selection
@@ -966,16 +974,11 @@ def handle_herder_callback(chat_id: int, msg_id: int, user_id: int,  str) -> boo
             style = profile.get('speech_style', '—')
             reactions = ' '.join(profile.get('preferred_reactions', [])) or '—'
             send_message(chat_id,
-                f"🧠 <b>Профиль аккаунта</b>
-"
-                f"👤 Личность: {persona}
-"
-                f"🎭 Роль: {role}
-"
-                f"❤️ Интересы: {interests}
-"
-                f"💬 Стиль: {style}
-"
+                f"🧠 <b>Профиль аккаунта</b>\n"
+                f"👤 Личность: {persona}\n"
+                f"🎭 Роль: {role}\n"
+                f"❤️ Интересы: {interests}\n"
+                f"💬 Стиль: {style}\n"
                 f"👍 Реакции: {reactions}",
                 kb_herder_profile_actions()
             )
@@ -1000,8 +1003,8 @@ def handle_herder_callback(chat_id: int, msg_id: int, user_id: int,  str) -> boo
 
 
 # ==================== HELPER KEYBOARDS ====================
+
 def kb_confirm():
-    """Confirm keyboard"""
     return reply_keyboard([
         ['✅ Подтвердить'],
         ['◀️ Назад', '❌ Отмена']
@@ -1009,7 +1012,6 @@ def kb_confirm():
 
 
 def kb_skip_2fa():
-    """Skip 2FA keyboard"""
     return reply_keyboard([
         ['⏭ Пропустить'],
         ['◀️ Назад', '❌ Отмена']
