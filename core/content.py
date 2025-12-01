@@ -59,19 +59,14 @@ def show_content_menu(chat_id: int, user_id: int):
     channels = DB.get_user_channels(user_id)
     generated = DB.get_generated_content(user_id, status='draft', limit=1)
     trends = DB.get_trend_snapshots(user_id, limit=1)
-    send_message(chat_id,
-        f"📝 <b>Контент-менеджер</b>
-"
-        f"ИИ-генерация контента и анализ
-"
-        f"📊 <b>Статистика:</b>
-"
-        f"├ Мои каналы: <b>{len(channels)}</b>
-"
-        f"├ Сгенерировано: <b>{len(generated)}</b>
-"
-        f"└ Актуальных трендов: <b>{len(trends)}</b>
-"
+    
+        send_message(chat_id,
+        f"📝 <b>Контент-менеджер</b>\n"
+        f"ИИ-генерация контента и анализ\n"
+        f"📊 <b>Статистика:</b>\n"
+        f"├ Мои каналы: <b>{len(channels)}</b>\n"
+        f"├ Сгенерировано: <b>{len(generated)}</b>\n"
+        f"└ Актуальных трендов: <b>{len(trends)}</b>\n"
         f"<i>Все генерации выполняются на стороне сервера</i>",
         kb_content_menu()
     )
