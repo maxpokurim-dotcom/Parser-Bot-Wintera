@@ -1,9 +1,8 @@
 """
 Keyboard builders - Reply keyboards (static menu) + Inline for lists
-Extended v3.0 with Herder, Factory, Content, Analytics
+Extended v3.1 — with new menu structure support
 """
 from typing import List, Dict, Optional
-
 
 # ==================== REPLY KEYBOARDS (STATIC MENU) ====================
 
@@ -15,18 +14,15 @@ def reply_keyboard(buttons: List[List[str]], resize: bool = True, one_time: bool
         'one_time_keyboard': one_time
     }
 
-
 def remove_keyboard() -> dict:
     """Remove reply keyboard"""
     return {'remove_keyboard': True}
-
 
 def inline_keyboard(buttons: List[List[dict]]) -> dict:
     """Create inline keyboard"""
     return {'inline_keyboard': buttons}
 
-
-# ==================== MAIN MENU ====================
+# ==================== MAIN MENU KEYBOARDS ====================
 
 def kb_main_menu():
     """Main menu keyboard - Extended"""
@@ -39,26 +35,50 @@ def kb_main_menu():
         ['⚙️ Настройки']
     ])
 
+# >>>> НОВЫЕ КЛАВИАТУРЫ ДЛЯ ИЕРАРХИЧЕСКОГО МЕНЮ <<<<
+def kb_outbound_menu():
+    """Outbound actions menu (Parsing, Mailing, Content)"""
+    return reply_keyboard([
+        ['🔍 Парсинг'],
+        ['📤 Рассылка'],
+        ['📝 Контент'],
+        ['◀️ Главное меню']
+    ])
+
+def kb_accounts_menu():
+    """Accounts hub menu (Accounts, Factory, Herder)"""
+    return reply_keyboard([
+        ['👤 Аккаунты'],
+        ['🏭 Фабрика'],
+        ['🤖 Ботовод'],
+        ['◀️ Главное меню']
+    ])
+
+def kb_analytics_menu():
+    """Analytics and data menu (Audiences, Templates, Analytics)"""
+    return reply_keyboard([
+        ['👥 Аудитории'],
+        ['📄 Шаблоны'],
+        ['📈 Аналитика'],
+        ['◀️ Главное меню']
+    ])
+# <<<< КОНЕЦ НОВЫХ КЛАВИАТУР <<<<
 
 def kb_cancel():
     """Cancel button"""
     return reply_keyboard([['❌ Отмена']])
 
-
 def kb_back():
     """Back button"""
     return reply_keyboard([['◀️ Назад']])
-
 
 def kb_back_cancel():
     """Back and cancel buttons"""
     return reply_keyboard([['◀️ Назад', '❌ Отмена']])
 
-
 def kb_back_main():
     """Back to main menu"""
     return reply_keyboard([['◀️ Главное меню']])
-
 
 def kb_yes_no():
     """Yes/No buttons"""
@@ -67,14 +87,12 @@ def kb_yes_no():
         ['◀️ Назад']
     ])
 
-
 def kb_confirm():
     """Confirm buttons"""
     return reply_keyboard([
         ['✅ Подтвердить', '❌ Отмена'],
         ['◀️ Назад']
     ])
-
 
 def kb_confirm_delete():
     """Confirm delete buttons"""
@@ -83,14 +101,12 @@ def kb_confirm_delete():
         ['◀️ Назад']
     ])
 
-
 def kb_skip():
     """Skip button"""
     return reply_keyboard([
         ['⏭ Пропустить'],
         ['◀️ Назад', '❌ Отмена']
     ])
-
 
 # ==================== PARSING KEYBOARDS ====================
 
@@ -102,7 +118,6 @@ def kb_parse_msg_limit():
         ['❌ Отмена']
     ])
 
-
 def kb_parse_filter_yn():
     """Yes/No filter for parsing"""
     return reply_keyboard([
@@ -110,14 +125,12 @@ def kb_parse_filter_yn():
         ['◀️ Назад', '❌ Отмена']
     ])
 
-
 def kb_parse_confirm():
     """Confirm parsing"""
     return reply_keyboard([
         ['🚀 Запустить парсинг'],
         ['◀️ Назад', '❌ Отмена']
     ])
-
 
 def kb_comments_range():
     """Post range selection"""
@@ -127,7 +140,6 @@ def kb_comments_range():
         ['❌ Отмена']
     ])
 
-
 def kb_min_length():
     """Minimum comment length"""
     return reply_keyboard([
@@ -136,7 +148,6 @@ def kb_min_length():
         ['◀️ Назад', '❌ Отмена']
     ])
 
-
 def kb_keyword_filter():
     """Keyword filter options"""
     return reply_keyboard([
@@ -144,14 +155,12 @@ def kb_keyword_filter():
         ['◀️ Назад', '❌ Отмена']
     ])
 
-
 def kb_keyword_match_mode():
     """Keyword match mode selection"""
     return reply_keyboard([
         ['🔍 Любое слово', '🔍 Все слова'],
         ['◀️ Назад', '❌ Отмена']
     ])
-
 
 # ==================== AUDIENCE KEYBOARDS ====================
 
@@ -163,7 +172,6 @@ def kb_audiences_menu():
         ['◀️ Главное меню']
     ])
 
-
 def kb_audience_actions():
     """Actions for selected audience"""
     return reply_keyboard([
@@ -172,14 +180,12 @@ def kb_audience_actions():
         ['◀️ К списку', '◀️ Главное меню']
     ])
 
-
 def kb_audience_tags():
     """Tags management"""
     return reply_keyboard([
         ['➕ Создать тег'],
         ['◀️ Назад']
     ])
-
 
 def kb_blacklist_menu():
     """Blacklist menu"""
@@ -189,14 +195,12 @@ def kb_blacklist_menu():
         ['◀️ Назад']
     ])
 
-
 def kb_stop_triggers_menu():
     """Stop triggers management"""
     return reply_keyboard([
         ['➕ Добавить слово', '📋 Список слов'],
         ['◀️ Назад']
     ])
-
 
 # ==================== TEMPLATE KEYBOARDS ====================
 
@@ -208,7 +212,6 @@ def kb_templates_menu():
         ['◀️ Главное меню']
     ])
 
-
 def kb_template_actions():
     """Actions for selected template"""
     return reply_keyboard([
@@ -216,7 +219,6 @@ def kb_template_actions():
         ['📁 Переместить', '🗑 Удалить'],
         ['◀️ К списку', '◀️ Главное меню']
     ])
-
 
 def kb_folder_actions():
     """Actions for template folder"""
@@ -226,10 +228,9 @@ def kb_folder_actions():
         ['◀️ К списку']
     ])
 
-
 # ==================== ACCOUNT KEYBOARDS ====================
 
-def kb_accounts_menu():
+def kb_accounts_list_menu():
     """Accounts menu"""
     return reply_keyboard([
         ['📋 Список аккаунтов', '📁 Папки'],
@@ -237,7 +238,6 @@ def kb_accounts_menu():
         ['📊 Прогноз лимитов', '🧠 Профили'],
         ['◀️ Главное меню']
     ])
-
 
 def kb_account_actions():
     """Actions for selected account"""
@@ -248,7 +248,6 @@ def kb_account_actions():
         ['◀️ К списку', '◀️ Главное меню']
     ])
 
-
 def kb_account_limits():
     """Daily limit selection"""
     return reply_keyboard([
@@ -258,7 +257,6 @@ def kb_account_limits():
         ['◀️ Назад']
     ])
 
-
 def kb_acc_folder_actions():
     """Actions for account folder"""
     return reply_keyboard([
@@ -266,7 +264,6 @@ def kb_acc_folder_actions():
         ['✏️ Переименовать', '🗑 Удалить папку'],
         ['◀️ К списку']
     ])
-
 
 def kb_account_role():
     """Account role selection"""
@@ -276,7 +273,6 @@ def kb_account_role():
         ['🎲 Случайная роль'],
         ['◀️ Назад']
     ])
-
 
 # ==================== MAILING KEYBOARDS ====================
 
@@ -289,7 +285,6 @@ def kb_mailing_menu():
         ['◀️ Главное меню']
     ])
 
-
 def kb_mailing_confirm():
     """Confirm mailing"""
     return reply_keyboard([
@@ -298,7 +293,6 @@ def kb_mailing_confirm():
         ['⚙️ Настройки рассылки'],
         ['❌ Отмена']
     ])
-
 
 def kb_mailing_time():
     """Mailing time selection"""
@@ -309,7 +303,6 @@ def kb_mailing_time():
         ['◀️ Назад', '❌ Отмена']
     ])
 
-
 def kb_mailing_settings():
     """Mailing settings during creation"""
     return reply_keyboard([
@@ -318,7 +311,6 @@ def kb_mailing_settings():
         ['✅ Готово'],
         ['◀️ Назад']
     ])
-
 
 def kb_campaign_actions(status: str):
     """Campaign actions based on status"""
@@ -333,14 +325,12 @@ def kb_campaign_actions(status: str):
     buttons.append(['◀️ К списку', '◀️ Главное меню'])
     return reply_keyboard(buttons)
 
-
 def kb_scheduler_menu():
     """Scheduler menu"""
     return reply_keyboard([
         ['➕ Новая задача', '📋 Список задач'],
         ['◀️ Назад']
     ])
-
 
 def kb_schedule_type():
     """Schedule type selection"""
@@ -350,7 +340,6 @@ def kb_schedule_type():
         ['◀️ Назад', '❌ Отмена']
     ])
 
-
 def kb_schedule_repeat():
     """Schedule repeat mode"""
     return reply_keyboard([
@@ -358,7 +347,6 @@ def kb_schedule_repeat():
         ['📆 Еженедельно'],
         ['◀️ Назад', '❌ Отмена']
     ])
-
 
 # ==================== HERDER (БОТОВОД) KEYBOARDS ====================
 
@@ -371,7 +359,6 @@ def kb_herder_menu():
         ['🎯 Стратегии', '⚙️ Настройки'],
         ['◀️ Главное меню']
     ])
-
 
 def kb_herder_assignment_actions(status: str):
     """Actions for herder assignment"""
@@ -387,7 +374,6 @@ def kb_herder_assignment_actions(status: str):
     buttons.append(['◀️ К списку', '◀️ Главное меню'])
     return reply_keyboard(buttons)
 
-
 def kb_herder_strategy():
     """Strategy selection"""
     return reply_keyboard([
@@ -397,7 +383,6 @@ def kb_herder_strategy():
         ['◀️ Назад', '❌ Отмена']
     ])
 
-
 def kb_herder_actions_constructor():
     """Actions constructor"""
     return reply_keyboard([
@@ -406,7 +391,6 @@ def kb_herder_actions_constructor():
         ['✅ Готово'],
         ['◀️ Назад', '❌ Отмена']
     ])
-
 
 def kb_herder_reactions():
     """Reaction selection"""
@@ -418,14 +402,12 @@ def kb_herder_reactions():
         ['◀️ Назад']
     ])
 
-
 def kb_herder_priority():
     """Priority selection"""
     return reply_keyboard([
         ['🔽 Низкий', '➖ Средний', '🔼 Высокий'],
         ['◀️ Назад', '❌ Отмена']
     ])
-
 
 def kb_herder_comments_limit():
     """Comments per day limit"""
@@ -435,7 +417,6 @@ def kb_herder_comments_limit():
         ['◀️ Назад', '❌ Отмена']
     ])
 
-
 def kb_herder_delay():
     """Delay after post selection"""
     return reply_keyboard([
@@ -443,7 +424,6 @@ def kb_herder_delay():
         ['60-360 мин', '📝 Свой'],
         ['◀️ Назад', '❌ Отмена']
     ])
-
 
 def kb_herder_profiles_menu():
     """Profiles management menu"""
@@ -454,7 +434,6 @@ def kb_herder_profiles_menu():
         ['◀️ Назад']
     ])
 
-
 def kb_herder_profile_actions():
     """Profile actions"""
     return reply_keyboard([
@@ -462,7 +441,6 @@ def kb_herder_profile_actions():
         ['🗑 Удалить'],
         ['◀️ К списку']
     ])
-
 
 def kb_herder_settings():
     """Herder settings"""
@@ -472,7 +450,6 @@ def kb_herder_settings():
         ['🌙 Сезонное поведение', '🔇 Тихий режим'],
         ['◀️ Назад']
     ])
-
 
 # ==================== FACTORY KEYBOARDS ====================
 
@@ -487,7 +464,6 @@ def kb_factory_menu():
         ['◀️ Главное меню']
     ])
 
-
 def kb_factory_auto_count():
     """Auto-creation count"""
     return reply_keyboard([
@@ -495,7 +471,6 @@ def kb_factory_auto_count():
         ['50', '📝 Своё количество'],
         ['◀️ Назад', '❌ Отмена']
     ])
-
 
 def kb_factory_country():
     """Country selection"""
@@ -506,7 +481,6 @@ def kb_factory_country():
         ['◀️ Назад', '❌ Отмена']
     ])
 
-
 def kb_factory_warmup_days():
     """Warmup days selection"""
     return reply_keyboard([
@@ -514,7 +488,6 @@ def kb_factory_warmup_days():
         ['14 дней', '🚫 Без прогрева'],
         ['◀️ Назад', '❌ Отмена']
     ])
-
 
 def kb_factory_task_actions():
     """Factory task actions"""
@@ -524,7 +497,6 @@ def kb_factory_task_actions():
         ['◀️ К списку']
     ])
 
-
 def kb_warmup_menu():
     """Warmup management menu"""
     return reply_keyboard([
@@ -533,7 +505,6 @@ def kb_warmup_menu():
         ['⚙️ Настройки прогрева'],
         ['◀️ Назад']
     ])
-
 
 # ==================== CONTENT KEYBOARDS ====================
 
@@ -547,7 +518,6 @@ def kb_content_menu():
         ['◀️ Главное меню']
     ])
 
-
 def kb_content_style():
     """Content style selection"""
     return reply_keyboard([
@@ -556,14 +526,12 @@ def kb_content_style():
         ['◀️ Назад', '❌ Отмена']
     ])
 
-
 def kb_content_length():
     """Content length selection"""
     return reply_keyboard([
         ['📝 Короткий', '📄 Средний', '📰 Длинный'],
         ['◀️ Назад', '❌ Отмена']
     ])
-
 
 def kb_content_actions():
     """Generated content actions"""
@@ -573,14 +541,12 @@ def kb_content_actions():
         ['❌ Отмена']
     ])
 
-
 def kb_content_channels_menu():
     """User channels menu"""
     return reply_keyboard([
         ['➕ Добавить канал', '📋 Список каналов'],
         ['◀️ Назад']
     ])
-
 
 def kb_content_channel_actions():
     """Channel actions"""
@@ -590,10 +556,9 @@ def kb_content_channel_actions():
         ['◀️ К списку']
     ])
 
-
 # ==================== ANALYTICS KEYBOARDS ====================
 
-def kb_analytics_menu():
+def kb_analytics_root_menu():
     """Analytics menu"""
     return reply_keyboard([
         ['🔥 Heatmap активности'],
@@ -601,7 +566,6 @@ def kb_analytics_menu():
         ['📈 Эффективность', '🧠 Обучение системы'],
         ['◀️ Главное меню']
     ])
-
 
 def kb_analytics_heatmap_actions():
     """Heatmap actions"""
@@ -611,7 +575,6 @@ def kb_analytics_heatmap_actions():
         ['◀️ Назад']
     ])
 
-
 def kb_analytics_risk_actions():
     """Risk prediction actions"""
     return reply_keyboard([
@@ -620,7 +583,6 @@ def kb_analytics_risk_actions():
         ['◀️ Назад']
     ])
 
-
 def kb_analytics_segments():
     """Segments menu"""
     return reply_keyboard([
@@ -628,7 +590,6 @@ def kb_analytics_segments():
         ['📋 Все сегменты'],
         ['◀️ Назад']
     ])
-
 
 # ==================== SETTINGS KEYBOARDS ====================
 
@@ -644,7 +605,6 @@ def kb_settings_menu():
         ['◀️ Главное меню']
     ])
 
-
 def kb_quiet_hours():
     """Quiet hours settings"""
     return reply_keyboard([
@@ -652,14 +612,12 @@ def kb_quiet_hours():
         ['◀️ Назад']
     ])
 
-
 def kb_notifications():
     """Notifications settings"""
     return reply_keyboard([
         ['🔔 Включить', '🔕 Отключить'],
         ['◀️ Назад']
     ])
-
 
 def kb_delay_settings():
     """Delay settings"""
@@ -670,7 +628,6 @@ def kb_delay_settings():
         ['◀️ Назад']
     ])
 
-
 def kb_cache_ttl():
     """Cache TTL settings"""
     return reply_keyboard([
@@ -680,7 +637,6 @@ def kb_cache_ttl():
         ['◀️ Назад']
     ])
 
-
 def kb_auto_blacklist():
     """Auto blacklist settings"""
     return reply_keyboard([
@@ -688,7 +644,6 @@ def kb_auto_blacklist():
         ['🛡 Настроить стоп-слова'],
         ['◀️ Назад']
     ])
-
 
 def kb_warmup_settings():
     """Warmup settings"""
@@ -698,14 +653,12 @@ def kb_warmup_settings():
         ['◀️ Назад']
     ])
 
-
 def kb_risk_tolerance():
     """Risk tolerance settings"""
     return reply_keyboard([
         ['🟢 Низкий', '🟡 Средний', '🔴 Высокий'],
         ['◀️ Назад']
     ])
-
 
 def kb_ai_settings():
     """AI settings"""
@@ -716,7 +669,6 @@ def kb_ai_settings():
         ['◀️ Назад']
     ])
 
-
 def kb_api_keys():
     """API keys settings"""
     return reply_keyboard([
@@ -725,7 +677,6 @@ def kb_api_keys():
         ['◀️ Назад']
     ])
 
-
 def kb_gpt_temperature():
     """GPT temperature selection"""
     return reply_keyboard([
@@ -733,7 +684,6 @@ def kb_gpt_temperature():
         ['0.9', '1.0 (креативный)'],
         ['◀️ Назад']
     ])
-
 
 # ==================== STATS KEYBOARDS ====================
 
@@ -746,8 +696,9 @@ def kb_stats_menu():
         ['◀️ Главное меню']
     ])
 
-
 # ==================== INLINE KEYBOARDS ====================
+# (Весь остальной код inline-клавиатур остаётся без изменений из keyboards.txt)
+# Скопирован дословно из вашего файла keyboards.txt, начиная с `_get_reliability_emoji`
 
 def _get_reliability_emoji(reliability: float) -> str:
     """Get emoji for reliability score"""
@@ -757,7 +708,6 @@ def _get_reliability_emoji(reliability: float) -> str:
         return '🟡'
     else:
         return '🔴'
-
 
 def kb_inline_audiences(sources: List[dict]) -> dict:
     """Inline keyboard for audience selection"""
@@ -773,7 +723,6 @@ def kb_inline_audiences(sources: List[dict]) -> dict:
             'callback_data': f"aud:{s['id']}"
         }])
     return inline_keyboard(buttons) if buttons else None
-
 
 def kb_inline_templates(templates: List[dict], folders: List[dict] = None) -> dict:
     """Inline keyboard for template selection"""
@@ -793,7 +742,6 @@ def kb_inline_templates(templates: List[dict], folders: List[dict] = None) -> di
             }])
     return inline_keyboard(buttons) if buttons else None
 
-
 def kb_inline_folder_templates(templates: List[dict], folder_id: int) -> dict:
     """Inline keyboard for templates in folder"""
     buttons = []
@@ -806,7 +754,6 @@ def kb_inline_folder_templates(templates: List[dict], folder_id: int) -> dict:
         }])
     return inline_keyboard(buttons) if buttons else None
 
-
 def kb_inline_template_folders(folders: List[dict], mode: str = 'move', template_id: int = 0) -> dict:
     """Inline keyboard for folder selection"""
     buttons = []
@@ -815,7 +762,6 @@ def kb_inline_template_folders(folders: List[dict], mode: str = 'move', template
         cb = f"mvtpl:{template_id}:{f['id']}" if mode == 'move' else f"selfld:{f['id']}"
         buttons.append([{'text': f"📁 {f['name']}", 'callback_data': cb}])
     return inline_keyboard(buttons)
-
 
 def kb_inline_accounts(folders: List[dict], accounts: List[dict]) -> dict:
     """Inline keyboard for account selection"""
@@ -840,7 +786,6 @@ def kb_inline_accounts(folders: List[dict], accounts: List[dict]) -> dict:
         }])
     return inline_keyboard(buttons) if buttons else None
 
-
 def kb_inline_acc_folders(folders: List[dict], accounts: List[dict]) -> dict:
     """Inline keyboard for accounts in folder"""
     buttons = []
@@ -857,7 +802,6 @@ def kb_inline_acc_folders(folders: List[dict], accounts: List[dict]) -> dict:
         }])
     return inline_keyboard(buttons) if buttons else None
 
-
 def kb_inline_account_folders(folders: List[dict], account_id: int) -> dict:
     """Inline keyboard for moving account to folder"""
     buttons = []
@@ -865,7 +809,6 @@ def kb_inline_account_folders(folders: List[dict], account_id: int) -> dict:
     for f in folders[:10]:
         buttons.append([{'text': f"📁 {f['name']}", 'callback_data': f"mvacc:{account_id}:{f['id']}"}])
     return inline_keyboard(buttons)
-
 
 def kb_inline_mailing_sources(sources: List[dict]) -> dict:
     """Inline keyboard for mailing source selection"""
@@ -881,7 +824,6 @@ def kb_inline_mailing_sources(sources: List[dict]) -> dict:
         }])
     return inline_keyboard(buttons) if buttons else None
 
-
 def kb_inline_mailing_templates(templates: List[dict]) -> dict:
     """Inline keyboard for mailing template selection"""
     buttons = []
@@ -893,7 +835,6 @@ def kb_inline_mailing_templates(templates: List[dict]) -> dict:
             'callback_data': f"mtpl:{t['id']}"
         }])
     return inline_keyboard(buttons) if buttons else None
-
 
 def kb_inline_mailing_acc_folders(folders: List[dict], accounts: List[dict]) -> dict:
     """Inline keyboard for mailing account folder selection"""
@@ -914,7 +855,6 @@ def kb_inline_mailing_acc_folders(folders: List[dict], accounts: List[dict]) -> 
         }])
     return inline_keyboard(buttons) if buttons else None
 
-
 def kb_inline_campaigns(campaigns: List[dict]) -> dict:
     """Inline keyboard for campaign selection"""
     buttons = []
@@ -928,7 +868,6 @@ def kb_inline_campaigns(campaigns: List[dict]) -> dict:
         }])
     return inline_keyboard(buttons) if buttons else None
 
-
 def kb_inline_scheduled(mailings: List[dict]) -> dict:
     """Inline keyboard for scheduled mailings"""
     buttons = []
@@ -939,7 +878,6 @@ def kb_inline_scheduled(mailings: List[dict]) -> dict:
             {'text': '🗑', 'callback_data': f"delschd:{m['id']}"}
         ])
     return inline_keyboard(buttons) if buttons else None
-
 
 def kb_inline_scheduled_tasks(tasks: List[dict]) -> dict:
     """Inline keyboard for scheduled tasks"""
@@ -955,7 +893,6 @@ def kb_inline_scheduled_tasks(tasks: List[dict]) -> dict:
         ])
     return inline_keyboard(buttons) if buttons else None
 
-
 def kb_inline_tags(tags: List[dict]) -> dict:
     """Inline keyboard for tags"""
     buttons = []
@@ -965,7 +902,6 @@ def kb_inline_tags(tags: List[dict]) -> dict:
             {'text': '🗑', 'callback_data': f"deltag:{t['id']}"}
         ])
     return inline_keyboard(buttons) if buttons else None
-
 
 def kb_inline_audience_tags(tags: List[dict], source_id: int, current: List[str]) -> dict:
     """Inline keyboard for audience tag selection"""
@@ -977,7 +913,6 @@ def kb_inline_audience_tags(tags: List[dict], source_id: int, current: List[str]
             'callback_data': f"togtag:{source_id}:{t['name']}"
         }])
     return inline_keyboard(buttons) if buttons else None
-
 
 def kb_inline_blacklist(items: List[dict]) -> dict:
     """Inline keyboard for blacklist"""
@@ -991,7 +926,6 @@ def kb_inline_blacklist(items: List[dict]) -> dict:
         ])
     return inline_keyboard(buttons) if buttons else None
 
-
 def kb_inline_stop_triggers(triggers: List[dict]) -> dict:
     """Inline keyboard for stop triggers"""
     buttons = []
@@ -1004,7 +938,6 @@ def kb_inline_stop_triggers(triggers: List[dict]) -> dict:
             {'text': '🗑', 'callback_data': f"delstop:{t['id']}"}
         ])
     return inline_keyboard(buttons) if buttons else None
-
 
 def kb_inline_hourly_stats(stats: List[dict]) -> dict:
     """Inline keyboard showing hourly stats summary"""
@@ -1029,7 +962,6 @@ def kb_inline_hourly_stats(stats: List[dict]) -> dict:
     
     return inline_keyboard(buttons) if buttons else None
 
-
 # ==================== HERDER INLINE KEYBOARDS ====================
 
 def kb_inline_monitored_channels(channels: List[dict]) -> dict:
@@ -1047,7 +979,6 @@ def kb_inline_monitored_channels(channels: List[dict]) -> dict:
         }])
     return inline_keyboard(buttons) if buttons else None
 
-
 def kb_inline_herder_assignments(assignments: List[dict]) -> dict:
     """Inline keyboard for herder assignments"""
     from core.db import DB
@@ -1063,7 +994,6 @@ def kb_inline_herder_assignments(assignments: List[dict]) -> dict:
             'callback_data': f"hass:{a['id']}"
         }])
     return inline_keyboard(buttons) if buttons else None
-
 
 def kb_inline_herder_accounts(accounts: List[dict], selected: List[int] = None) -> dict:
     """Inline keyboard for selecting accounts for herder"""
@@ -1089,7 +1019,6 @@ def kb_inline_herder_accounts(accounts: List[dict], selected: List[int] = None) 
     
     return inline_keyboard(buttons)
 
-
 def kb_inline_herder_strategies() -> dict:
     """Inline keyboard for strategy selection"""
     buttons = [
@@ -1100,7 +1029,6 @@ def kb_inline_herder_strategies() -> dict:
         [{'text': '👥 Комьюнити', 'callback_data': 'hstrat:community'}]
     ]
     return inline_keyboard(buttons)
-
 
 def kb_inline_account_profiles(profiles: List[dict]) -> dict:
     """Inline keyboard for account profiles"""
@@ -1126,7 +1054,6 @@ def kb_inline_account_profiles(profiles: List[dict]) -> dict:
             }])
     
     return inline_keyboard(buttons) if buttons else None
-
 
 # ==================== ANALYTICS INLINE KEYBOARDS ====================
 
@@ -1161,7 +1088,6 @@ def kb_inline_risk_accounts(accounts_with_risk: List[dict]) -> dict:
     
     return inline_keyboard(buttons) if buttons else None
 
-
 def kb_inline_segments(segments: List[dict]) -> dict:
     """Inline keyboard for audience segments"""
     buttons = []
@@ -1175,7 +1101,6 @@ def kb_inline_segments(segments: List[dict]) -> dict:
             'callback_data': f"aseg:{s['id']}"
         }])
     return inline_keyboard(buttons) if buttons else None
-
 
 # ==================== FACTORY INLINE KEYBOARDS ====================
 
@@ -1192,7 +1117,6 @@ def kb_inline_factory_tasks(tasks: List[dict]) -> dict:
             'callback_data': f"ftask:{t['id']}"
         }])
     return inline_keyboard(buttons) if buttons else None
-
 
 def kb_inline_warmup_accounts(accounts: List[dict]) -> dict:
     """Inline keyboard for accounts in warmup"""
@@ -1220,7 +1144,6 @@ def kb_inline_warmup_accounts(accounts: List[dict]) -> dict:
     
     return inline_keyboard(buttons) if buttons else None
 
-
 # ==================== CONTENT INLINE KEYBOARDS ====================
 
 def kb_inline_user_channels(channels: List[dict]) -> dict:
@@ -1234,7 +1157,6 @@ def kb_inline_user_channels(channels: List[dict]) -> dict:
             'callback_data': f"uch:{c['id']}"
         }])
     return inline_keyboard(buttons) if buttons else None
-
 
 def kb_inline_generated_content(content: List[dict]) -> dict:
     """Inline keyboard for generated content"""
