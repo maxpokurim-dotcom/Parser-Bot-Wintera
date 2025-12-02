@@ -1931,7 +1931,7 @@ class DB:
 
     @classmethod
     def create_auth_task(cls, user_id: int, phone: str, folder_id: int = None, 
-                        task_type: str = 'manual') -> Optional[Dict]:
+                        task_type: str = 'manual', account_id: int = None) -> Optional[Dict]:
         data = {
             'owner_id': user_id,
             'phone': phone,
@@ -1942,6 +1942,8 @@ class DB:
         }
         if folder_id:
             data['folder_id'] = folder_id
+        if account_id:
+            data['account_id'] = account_id
         return cls._insert('auth_tasks', data)
 
     @classmethod

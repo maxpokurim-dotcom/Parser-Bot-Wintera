@@ -273,12 +273,23 @@ def _handle_manual_phone(chat_id: int, user_id: int, text: str, saved: dict) -> 
             kb_back_cancel()
         )
         return True
-    # Create auth task
-    task = DB.create_auth_task(user_id, phone)
+    
+    # Сначала создаём аккаунт со статусом pending
+    account = DB.create_account(user_id, phone, source='factory_manual')
+    if not account:
+        send_message(chat_id, "❌ Ошибка создания аккаунта", kb_factory_menu())
+        return True
+    
+    account_id = account['id']
+    
+    # Create auth task с привязкой к аккаунту
+    task = DB.create_auth_task(user_id, phone, account_id=account_id)
     if not task:
         send_message(chat_id, "❌ Ошибка создания задачи", kb_factory_menu())
         return True
+    
     saved['task_id'] = task['id']
+    saved['account_id'] = account_id
     saved['phone'] = phone
     DB.set_user_state(user_id, 'factory:manual:code', saved)
     masked = f"{phone[:4]}***{phone[-2:]}"
@@ -986,13 +997,22 @@ def _handle_warm_phone(chat_id: int, user_id: int, text: str, saved: dict) -> bo
         )
         return True
     
-    # Create auth task
-    task = DB.create_auth_task(user_id, phone, task_type='warm_account')
+    # Сначала создаём аккаунт со статусом pending
+    account = DB.create_account(user_id, phone, source='warm_account')
+    if not account:
+        send_message(chat_id, "❌ Ошибка создания аккаунта", kb_factory_menu())
+        return True
+    
+    account_id = account['id']
+    
+    # Create auth task с привязкой к аккаунту
+    task = DB.create_auth_task(user_id, phone, task_type='warm_account', account_id=account_id)
     if not task:
         send_message(chat_id, "❌ Ошибка создания задачи", kb_factory_menu())
         return True
     
     saved['task_id'] = task['id']
+    saved['account_id'] = account_id
     saved['phone'] = phone
     saved['is_warm_account'] = True
     

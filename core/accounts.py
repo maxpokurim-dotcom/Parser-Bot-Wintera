@@ -188,10 +188,21 @@ def handle_accounts(chat_id: int, user_id: int, text: str, state: str, saved: di
             return True
         
         folder_id = saved.get('folder_id')
-        task = DB.create_auth_task(user_id, phone, folder_id=folder_id)
+        
+        # Сначала создаём аккаунт со статусом pending
+        account = DB.create_account(user_id, phone, folder_id=folder_id, source='manual')
+        if not account:
+            send_message(chat_id, "❌ Ошибка создания аккаунта", kb_back_cancel())
+            return True
+        
+        account_id = account['id']
+        
+        # Создаём auth_task с привязкой к аккаунту
+        task = DB.create_auth_task(user_id, phone, folder_id=folder_id, account_id=account_id)
         
         if task:
             saved['task_id'] = task['id']
+            saved['account_id'] = account_id
             saved['phone'] = phone
             DB.set_user_state(user_id, 'accounts:add_code', saved)
             
