@@ -35,15 +35,34 @@ BTN_CONFIRM_DELETE = '🗑 Да, удалить'
 
 
 def show_templates_menu(chat_id: int, user_id: int):
-    """Show templates menu"""
+    """Show templates menu with comprehensive description"""
     DB.set_user_state(user_id, 'templates:menu')
     templates = DB.get_templates(user_id)
     folders = DB.get_template_folders(user_id)
     
+    # Count templates by type
+    text_count = sum(1 for t in templates if t.get('media_type') == 'text' or not t.get('media_type'))
+    media_count = len(templates) - text_count
+    
     send_message(chat_id,
-        f"📄 <b>Шаблоны</b>\n\n"
-        f"📝 Шаблонов: <b>{len(templates)}</b>\n"
-        f"📁 Папок: <b>{len(folders)}</b>",
+        f"📄 <b>Шаблоны сообщений</b>\n\n"
+        f"<i>Создавайте и управляйте шаблонами\n"
+        f"для быстрой настройки рассылок.</i>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>📊 СТАТИСТИКА</b>\n"
+        f"├ Всего шаблонов: <b>{len(templates)}</b>\n"
+        f"├ Текстовых: <b>{text_count}</b>\n"
+        f"├ С медиа: <b>{media_count}</b>\n"
+        f"└ Папок: <b>{len(folders)}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>🛠 Возможности:</b>\n"
+        f"• <b>Создать</b> — новый шаблон с текстом/медиа\n"
+        f"• <b>Список</b> — все сохранённые шаблоны\n"
+        f"• <b>Папки</b> — группировка по категориям\n"
+        f"• <b>Предпросмотр</b> — проверка перед отправкой\n\n"
+        f"💡 <i>Используйте переменные в шаблонах:\n"
+        f"{{name}} — имя получателя\n"
+        f"{{username}} — @username</i>",
         kb_templates_menu()
     )
 

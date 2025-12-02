@@ -44,7 +44,7 @@ ROLE_PRESETS = {
     'active': {'expert': 0.4, 'support': 0.3, 'trendsetter': 0.2, 'observer': 0.1}
 }
 def show_factory_menu(chat_id: int, user_id: int):
-    """Show factory main menu"""
+    """Show factory main menu with comprehensive description"""
     DB.set_user_state(user_id, 'factory:menu')
     # Get statistics
     accounts = DB.get_accounts(user_id)
@@ -57,20 +57,27 @@ def show_factory_menu(chat_id: int, user_id: int):
     # Check OnlineSim balance
     settings = DB.get_user_settings(user_id)
     onlinesim_configured = bool(settings.get('onlinesim_api_key'))
-    balance_info = ""
-    if onlinesim_configured:
-        balance_info = "\n💰 OnlineSim: настроен"
-    else:
-        balance_info = "\n⚠️ OnlineSim: не настроен"
+    balance_info = "💰 OnlineSim: ✅ настроен" if onlinesim_configured else "⚠️ OnlineSim: ❌ не настроен"
+    
     send_message(chat_id,
-        f"🏭 <b>Фабрика аккаунтов</b>\n"
-        f"Создание и прогрев Telegram-аккаунтов\n"
-        f"📊 <b>Статистика:</b>\n"
+        f"🏭 <b>Фабрика аккаунтов</b>\n\n"
+        f"<i>Автоматизированное создание и подготовка\n"
+        f"Telegram-аккаунтов к рабочему использованию.</i>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>📊 ТЕКУЩЕЕ СОСТОЯНИЕ</b>\n"
         f"├ Всего аккаунтов: <b>{total}</b>\n"
         f"├ Активных: <b>{active}</b>\n"
         f"├ На прогреве: <b>{warming}</b>\n"
-        f"└ Задач в очереди: <b>{pending_tasks}</b>"
-        f"{balance_info}",
+        f"├ Задач в очереди: <b>{pending_tasks}</b>\n"
+        f"└ {balance_info}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>🛠 Доступные операции:</b>\n"
+        f"• <b>Вручную</b> — добавьте свой номер телефона\n"
+        f"• <b>Авто-создание</b> — через сервис OnlineSim\n"
+        f"• <b>Прогрев</b> — подготовка аккаунтов к работе\n"
+        f"• <b>Очередь</b> — мониторинг задач создания\n\n"
+        f"💡 <i>Рекомендация: прогревайте новые аккаунты\n"
+        f"минимум 3-5 дней перед активной работой</i>",
         kb_factory_menu()
     )
 def handle_factory(chat_id: int, user_id: int, text: str, state: str, saved: dict) -> bool:
