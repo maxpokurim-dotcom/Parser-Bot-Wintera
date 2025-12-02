@@ -243,6 +243,7 @@ def _handle_new_channel(chat_id: int, user_id: int, text: str, saved: dict) -> b
             acc['profile'] = DB.get_account_profile(acc['id'])
             all_accounts.append(acc)
 
+    # Отправляем ОДНО сообщение с inline-клавиатурой
     send_message(chat_id,
         f"✅ Канал: <b>{saved['channel_title']}</b>\n"
         f"<b>Шаг 2/8:</b> Выберите аккаунты\n"
@@ -338,9 +339,6 @@ def _handle_new_actions(chat_id: int, user_id: int, text: str, saved: dict) -> b
         else:
             DB.set_user_state(user_id, 'herder:new:priority', saved)
             _show_priority_selection(chat_id, user_id, saved)
-        return True
-    else:
-        _show_actions_constructor(chat_id, user_id, saved)
         return True
 
     saved['actions'] = actions
@@ -806,6 +804,7 @@ def _handle_stats(chat_id: int, user_id: int, text: str) -> bool:
 
 
 def show_herder_settings(chat_id: int, user_id: int):
+    DB.set_user_state(user_id, 'herder:settings', {})
     settings = DB.get_user_settings(user_id)
     herder = settings.get('herder_settings', {})
     strategy = STRATEGIES.get(herder.get('default_strategy', 'observer'), {}).get('name', 'Наблюдатель')
@@ -958,13 +957,13 @@ def handle_herder_callback(chat_id: int, msg_id: int, user_id: int, data: str) -
         return True
 
     # Assignment selection
-    if data.startswith('hassign:'):
+    if data.startswith('hass:'):
         assignment_id = int(data.split(':')[1])
         show_assignment_view(chat_id, user_id, assignment_id)
         return True
 
     # Profile selection
-    if data.startswith('hprofile:'):
+    if data.startswith('hprof:'):
         account_id = int(data.split(':')[1])
         profile = DB.get_account_profile(account_id)
         if profile:
@@ -987,7 +986,7 @@ def handle_herder_callback(chat_id: int, msg_id: int, user_id: int, data: str) -
         return True
 
     # Strategy selection (in new assignment flow)
-    if data.startswith('hstrategy:'):
+    if data.startswith('hstrat:'):
         strategy = data.split(':')[1]
         state_data = DB.get_user_state(user_id)
         if not state_data or not state_data.get('state', '').startswith('herder:new:'):
