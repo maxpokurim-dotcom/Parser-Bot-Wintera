@@ -76,18 +76,23 @@ class ParsingWorker(BaseWorker):
             db.update_parsing_task(task_id, status='error', error='Invalid source link')
             return
         
-        # Get source_type (may differ from task_type)
-        source_type = task.get('source_type', task_type)
+        # Get source_type from task
+        source_type = task.get('source_type', 'chat')
         
-        # Parse based on type
-        if source_type in ('comments', 'post_comments'):
+        self.logger.info(f"Task type: {source_type}")
+        
+        # Parse based on source_type
+        if source_type == 'comments':
+            # Comments on channel posts
             await self._parse_comments(task, account, channel)
-        elif source_type in ('messages', 'chat_messages', 'active_users'):
+        elif source_type == 'chat':
+            # Chat messages - collect authors of messages
             await self._parse_messages(task, account, channel)
         elif source_type in ('participants', 'members', 'subscribers'):
+            # Direct participants list (for groups only)
             await self._parse_participants(task, account, channel)
         else:
-            # Default: try messages first (most common use case), fallback to participants
+            # Default: parse messages (most common use case)
             await self._parse_messages(task, account, channel)
     
     async def _parse_participants(self, task: dict, account: dict, channel: str):
@@ -190,13 +195,26 @@ class ParsingWorker(BaseWorker):
         phone = account['phone']
         account_id = account['id']
         
-        # Get limits and filters
-        message_limit = task.get('limit', 1000)  # Default 1000 messages
-        filters = task.get('filters', {})
-        only_with_username = filters.get('only_with_username', False)
-        only_with_photo = filters.get('only_with_photo', False)
-        exclude_bots = filters.get('exclude_bots', True)
-        keywords = filters.get('keywords', [])  # List of keywords for semantic filtering
+        # Get filters from task (stored as JSON in 'filters' column)
+        filters = task.get('filters') or {}
+        if isinstance(filters, str):
+            import json
+            try:
+                filters = json.loads(filters)
+            except:
+                filters = {}
+        
+        # Message limit from filters.message_limit (how bot saves it)
+        message_limit = filters.get('message_limit', 1000)
+        
+        # User filters (bot uses filter_username, filter_photo, filter_bots)
+        only_with_username = filters.get('filter_username', False) or filters.get('only_with_username', False)
+        only_with_photo = filters.get('filter_photo', False) or filters.get('only_with_photo', False)
+        exclude_bots = filters.get('filter_bots', True) or filters.get('exclude_bots', True)
+        
+        # Keywords stored in separate column 'keyword_filter' (array)
+        keywords = task.get('keyword_filter') or filters.get('keywords') or []
+        keyword_match_mode = task.get('keyword_match_mode', 'any')  # 'any' or 'all'
         
         self.logger.info(f"Parsing message authors from {channel} (last {message_limit} messages)")
         
@@ -234,10 +252,17 @@ class ParsingWorker(BaseWorker):
                 if not hasattr(sender, 'bot'):
                     continue
                 
-                # Keyword filtering (semantic parsing)
+                # Keyword filtering
                 if keywords and message.text:
                     text_lower = message.text.lower()
-                    keyword_found = any(kw.lower() in text_lower for kw in keywords)
+                    
+                    if keyword_match_mode == 'all':
+                        # All keywords must be present
+                        keyword_found = all(kw.lower() in text_lower for kw in keywords)
+                    else:
+                        # Any keyword matches (default)
+                        keyword_found = any(kw.lower() in text_lower for kw in keywords)
+                    
                     if not keyword_found:
                         continue
                     keyword_matches += 1
@@ -299,33 +324,30 @@ class ParsingWorker(BaseWorker):
     async def _parse_comments(self, task: dict, account: dict, channel: str):
         """Parse users from post comments"""
         task_id = task['id']
-        source_id = task.get('source_id')
+        source_id = task.get('source_id') or task['id']
         phone = account['phone']
         account_id = account['id']
-        post_limit = task.get('post_limit', 10)
-        filters = task.get('filters', {})
         
-        self.logger.info(f"Parsing comments from {channel}")
+        # Get filters
+        filters = task.get('filters') or {}
+        if isinstance(filters, str):
+            import json
+            try:
+                filters = json.loads(filters)
+            except:
+                filters = {}
         
-        # Get recent posts
-        posts_result = await telegram_actions.get_channel_posts(
-            account_id,
-            phone, 
-            channel,
-            limit=post_limit
-        )
+        # Post range from filters (bot saves as post_start, post_end)
+        post_start = filters.get('post_start', 1)
+        post_end = filters.get('post_end', 10)
+        post_limit = post_end - post_start + 1
+        min_comment_length = filters.get('min_comment_length', 0)
         
-        if not posts_result['success']:
-            db.update_parsing_task(task_id, status='error', error=posts_result['error'])
-            return
+        # Keywords from separate column
+        keywords = task.get('keyword_filter') or []
+        keyword_match_mode = task.get('keyword_match_mode', 'any')
         
-        posts = posts_result.get('posts', [])
-        if not posts:
-            db.update_parsing_task(task_id, status='completed', parsed_count=0)
-            return
-        
-        total_parsed = 0
-        users_collected = {}  # telegram_id -> user data (dedup)
+        self.logger.info(f"Parsing comments from {channel} (posts {post_start}-{post_end})")
         
         # Get client for comment parsing
         from services.telegram_client import client_manager
@@ -335,44 +357,90 @@ class ParsingWorker(BaseWorker):
             return
         
         try:
-            from telethon.tl.functions.messages import GetDiscussionMessageRequest, GetRepliesRequest
+            from telethon.tl.functions.messages import GetRepliesRequest
             
             channel_entity = await client.get_entity(channel)
             
+            # Get posts to parse comments from
+            messages = await client.get_messages(channel_entity, limit=post_end)
+            posts = messages[post_start-1:post_end] if len(messages) >= post_start else messages
+            
+            if not posts:
+                db.update_parsing_task(task_id, status='completed', parsed_count=0)
+                self.logger.info(f"No posts found in {channel}")
+                return
+            
+            users_collected = {}  # telegram_id -> user data (dedup)
+            total_comments = 0
+            keyword_matches = 0
+            
             for post in posts:
-                post_id = post['id']
+                post_id = post.id
                 
                 try:
-                    # Try to get discussion/replies for the post
+                    # Get replies (comments) for the post
                     replies = await client(GetRepliesRequest(
                         peer=channel_entity,
                         msg_id=post_id,
                         offset_id=0,
                         offset_date=None,
                         add_offset=0,
-                        limit=100,
+                        limit=200,  # Up to 200 comments per post
                         max_id=0,
                         min_id=0,
                         hash=0
                     ))
                     
-                    # Extract users from replies
-                    for user in replies.users:
-                        if user.bot:
-                            if filters.get('exclude_bots', True):
-                                continue
+                    # Build user map from replies.users
+                    user_map = {u.id: u for u in replies.users if hasattr(u, 'id')}
+                    
+                    # Process each comment message
+                    for msg in replies.messages:
+                        total_comments += 1
                         
-                        if filters.get('only_with_username') and not user.username:
+                        # Skip if no text or too short
+                        if not msg.message:
+                            continue
+                        if len(msg.message) < min_comment_length:
                             continue
                         
+                        # Keyword filtering
+                        if keywords:
+                            text_lower = msg.message.lower()
+                            if keyword_match_mode == 'all':
+                                keyword_found = all(kw.lower() in text_lower for kw in keywords)
+                            else:
+                                keyword_found = any(kw.lower() in text_lower for kw in keywords)
+                            
+                            if not keyword_found:
+                                continue
+                            keyword_matches += 1
+                        
+                        # Get user who wrote this comment
+                        sender_id = msg.from_id.user_id if hasattr(msg.from_id, 'user_id') else None
+                        if not sender_id or sender_id not in user_map:
+                            continue
+                        
+                        user = user_map[sender_id]
+                        
+                        # Skip bots
+                        if hasattr(user, 'bot') and user.bot:
+                            continue
+                        
+                        # Skip deleted users
+                        if hasattr(user, 'deleted') and user.deleted:
+                            continue
+                        
+                        # Add user if not collected
                         if user.id not in users_collected:
                             users_collected[user.id] = {
                                 'telegram_id': user.id,
+                                'tg_user_id': user.id,
                                 'username': user.username,
                                 'first_name': user.first_name,
                                 'last_name': user.last_name,
                                 'is_premium': getattr(user, 'premium', False),
-                                'is_bot': user.bot,
+                                'is_bot': False,
                                 'has_photo': user.photo is not None
                             }
                     
@@ -381,20 +449,18 @@ class ParsingWorker(BaseWorker):
                     continue
                 
                 # Small delay between posts
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
             
-            # Apply additional filters
-            filtered_users = []
-            for user in users_collected.values():
-                # Only with photo filter
-                if filters.get('only_with_photo') and not user.get('has_photo'):
-                    continue
-                filtered_users.append(user)
+            self.logger.info(f"Processed {total_comments} comments from {len(posts)} posts")
+            if keywords:
+                self.logger.info(f"Keyword matches: {keyword_matches} comments")
+            
+            filtered_users = list(users_collected.values())
             
             # Save users to database
+            total_parsed = 0
             if source_id and filtered_users:
-                added = db.add_audience_users(source_id, filtered_users)
-                total_parsed = added
+                total_parsed = db.add_audience_users(source_id, filtered_users)
             else:
                 total_parsed = len(filtered_users)
             
