@@ -113,7 +113,7 @@ def handle_message(message: dict):
             )
             return
         if text == BTN_ACCOUNTS_HUB:
-            DB.set_user_state(user_id, 'accounts:menu')
+            DB.set_user_state(user_id, 'accounts_hub:menu')
             send_message(chat_id, 
                 "🤖 <b>Управление аккаунтами</b>\n\n"
                 "Управляйте вашими Telegram-аккаунтами:\n"
@@ -158,7 +158,7 @@ def handle_message(message: dict):
             show_main_menu(chat_id, user_id)
             return
 
-    if state == 'accounts:menu':
+    if state == 'accounts_hub:menu':
         if text == '👤 Аккаунты':
             # Descriptive message is shown inside show_accounts_menu
             show_accounts_menu(chat_id, user_id)

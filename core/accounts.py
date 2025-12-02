@@ -9,7 +9,7 @@ from core.db import DB
 from core.telegram import send_message, answer_callback
 from core.keyboards import (
     kb_main_menu, kb_cancel, kb_back, kb_back_cancel, kb_confirm_delete,
-    kb_accounts_menu, kb_account_actions, kb_account_limits, kb_acc_folder_actions,
+    kb_accounts_menu, kb_accounts_submenu, kb_account_actions, kb_account_limits, kb_acc_folder_actions,
     kb_inline_accounts, kb_inline_acc_folders, kb_inline_account_folders
 )
 from core.menu import show_main_menu, BTN_CANCEL, BTN_BACK, BTN_MAIN_MENU
@@ -98,7 +98,7 @@ def show_accounts_menu(chat_id: int, user_id: int):
         f"• <b>Прогноз</b> — оценка будущих лимитов\n\n"
         f"💡 <i>Рекомендация: группируйте аккаунты\n"
         f"по проектам или типам рассылок</i>",
-        kb_accounts_menu()
+        kb_accounts_submenu()
     )
 
 
@@ -115,7 +115,16 @@ def handle_accounts(chat_id: int, user_id: int, text: str, state: str, saved: di
     
     if text == BTN_BACK:
         if state in ['accounts:menu', 'accounts:list']:
-            show_main_menu(chat_id, user_id)
+            # Return to accounts hub menu
+            from core.keyboards import kb_accounts_menu
+            DB.set_user_state(user_id, 'accounts_hub:menu')
+            send_message(chat_id, 
+                "🤖 <b>Управление аккаунтами</b>\n\n"
+                "• 👤 <b>Аккаунты</b> — статус, лимиты, надёжность\n"
+                "• 🏭 <b>Фабрика</b> — создание и прогрев\n"
+                "• 🤖 <b>Ботовод</b> — симуляция активности",
+                kb_accounts_menu()
+            )
         elif state.startswith('accounts:view:') or state.startswith('accounts:folder:'):
             show_account_list(chat_id, user_id)
         elif state.startswith('accounts:'):
@@ -157,9 +166,9 @@ def handle_accounts(chat_id: int, user_id: int, text: str, state: str, saved: di
         
         folder = DB.create_account_folder(user_id, name)
         if folder:
-            send_message(chat_id, f"✅ Папка «{name}» создана!", kb_accounts_menu())
+            send_message(chat_id, f"✅ Папка «{name}» создана!", kb_accounts_submenu())
         else:
-            send_message(chat_id, "❌ Ошибка создания", kb_accounts_menu())
+            send_message(chat_id, "❌ Ошибка создания", kb_accounts_submenu())
         show_accounts_menu(chat_id, user_id)
         return True
     
@@ -194,7 +203,7 @@ def handle_accounts(chat_id: int, user_id: int, text: str, state: str, saved: di
                 kb_back_cancel()
             )
         else:
-            send_message(chat_id, "❌ Ошибка создания задачи", kb_accounts_menu())
+            send_message(chat_id, "❌ Ошибка создания задачи", kb_accounts_submenu())
         return True
     
     # Add account - code
@@ -213,7 +222,7 @@ def handle_accounts(chat_id: int, user_id: int, text: str, state: str, saved: di
             "✅ <b>Код принят!</b>\n\n"
             "Авторизация выполняется в фоновом режиме.\n"
             "Вы получите уведомление о результате.",
-            kb_accounts_menu()
+            kb_accounts_submenu()
         )
         return True
     
@@ -224,7 +233,7 @@ def handle_accounts(chat_id: int, user_id: int, text: str, state: str, saved: di
         phone = saved.get('phone', '')
         
         if not task_id:
-            send_message(chat_id, "❌ Ошибка: задача не найдена", kb_accounts_menu())
+            send_message(chat_id, "❌ Ошибка: задача не найдена", kb_accounts_submenu())
             DB.clear_user_state(user_id)
             return True
         
@@ -240,7 +249,7 @@ def handle_accounts(chat_id: int, user_id: int, text: str, state: str, saved: di
             f"🔐 <b>Пароль принят!</b>\n\n"
             f"📱 Аккаунт: {masked}\n"
             f"Завершаем авторизацию...",
-            kb_accounts_menu()
+            kb_accounts_submenu()
         )
         return True
     
@@ -327,7 +336,7 @@ def handle_accounts(chat_id: int, user_id: int, text: str, state: str, saved: di
         
         if text == BTN_CONFIRM_DELETE:
             DB.delete_account(account_id)
-            send_message(chat_id, "✅ Аккаунт удалён", kb_accounts_menu())
+            send_message(chat_id, "✅ Аккаунт удалён", kb_accounts_submenu())
             show_account_list(chat_id, user_id)
             return True
         
@@ -385,7 +394,7 @@ def handle_accounts(chat_id: int, user_id: int, text: str, state: str, saved: di
         if text == BTN_CONFIRM_DELETE:
             DB.move_accounts_from_folder(folder_id)
             DB.delete_account_folder(folder_id)
-            send_message(chat_id, "✅ Папка удалена", kb_accounts_menu())
+            send_message(chat_id, "✅ Папка удалена", kb_accounts_submenu())
             show_account_list(chat_id, user_id)
             return True
         
@@ -458,7 +467,7 @@ def show_account_list(chat_id: int, user_id: int):
             "👤 <b>Список аккаунтов</b>\n\n"
             "У вас пока нет аккаунтов.\n"
             "Добавьте первый аккаунт!",
-            kb_accounts_menu()
+            kb_accounts_submenu()
         )
     else:
         kb = kb_inline_accounts(folders, accounts)
@@ -467,14 +476,14 @@ def show_account_list(chat_id: int, user_id: int):
                 "👤 <b>Выберите аккаунт или папку:</b>\n\n"
                 "🟢 высокая | 🟡 средняя | 🔴 низкая — надёжность", 
                 kb)
-        send_message(chat_id, "👆 Выберите выше или:", kb_accounts_menu())
+        send_message(chat_id, "👆 Выберите выше или:", kb_accounts_submenu())
 
 
 def show_account_view(chat_id: int, user_id: int, account_id: int):
     """Show account details"""
     account = DB.get_account(account_id)
     if not account:
-        send_message(chat_id, "❌ Аккаунт не найден", kb_accounts_menu())
+        send_message(chat_id, "❌ Аккаунт не найден", kb_accounts_submenu())
         return
     
     DB.set_user_state(user_id, f'accounts:view:{account_id}')
@@ -593,7 +602,7 @@ def show_all_accounts_prediction(chat_id: int, user_id: int):
     accounts = DB.get_active_accounts(user_id)
     
     if not accounts:
-        send_message(chat_id, "❌ Нет активных аккаунтов", kb_accounts_menu())
+        send_message(chat_id, "❌ Нет активных аккаунтов", kb_accounts_submenu())
         return
     
     DB.set_user_state(user_id, 'accounts:predictions')
@@ -635,7 +644,7 @@ def show_all_accounts_prediction(chat_id: int, user_id: int):
     if best_hours:
         txt += f"⏰ <b>Лучшие часы:</b> {', '.join(f'{h}:00' for h in best_hours)}"
     
-    send_message(chat_id, txt, kb_accounts_menu())
+    send_message(chat_id, txt, kb_accounts_submenu())
 
 
 def show_move_account(chat_id: int, user_id: int, account_id: int):
@@ -652,7 +661,7 @@ def show_folder_view(chat_id: int, user_id: int, folder_id: int):
     """Show folder details"""
     folder = DB.get_account_folder(folder_id)
     if not folder:
-        send_message(chat_id, "❌ Папка не найдена", kb_accounts_menu())
+        send_message(chat_id, "❌ Папка не найдена", kb_accounts_submenu())
         return
     
     accounts = DB.get_accounts_in_folder(folder_id)

@@ -59,6 +59,15 @@ def kb_accounts_menu():
         ['◀️ Главное меню']
     ])
 
+def kb_accounts_submenu():
+    """Accounts submenu (List, Folders, Add, Prediction)"""
+    return reply_keyboard([
+        ['📋 Список аккаунтов', '📁 Папки'],
+        ['➕ Добавить аккаунт', '📁 Создать папку'],
+        ['📊 Прогноз лимитов'],
+        ['◀️ Назад']
+    ])
+
 def kb_analytics_menu():
     """Analytics and data menu (Audiences, Templates, Analytics)"""
     return reply_keyboard([
