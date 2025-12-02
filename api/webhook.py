@@ -1,13 +1,13 @@
 """
-Telegram Bot Webhook - Entry Point v3.1
-Restructured Menu Integration
+Telegram Bot Webhook - Entry Point v3.2
+Final Restructured Menu Implementation
 """
 import json
 import logging
 from http.server import BaseHTTPRequestHandler
 from core.db import DB
 from core.telegram import send_message, answer_callback
-from core.keyboards import kb_main_menu, kb_outbound_menu, kb_accounts_menu, kb_analytics_menu
+from core.keyboards import kb_main_menu
 # Import handlers
 from core.menu import (
     show_main_menu, handle_start, handle_cancel,
@@ -97,7 +97,7 @@ def handle_message(message: dict):
                 )
                 return
     # Main menu buttons (when no specific state)
-    if not state or state in ['main:menu', 'outbound:menu', 'accounts:menu', 'analytics:menu']:
+    if not state or state in ['main:menu']:
         if text == BTN_OUTBOUND:
             DB.set_user_state(user_id, 'outbound:menu')
             send_message(chat_id, "📥 <b>Исходящие действия</b>", kb_outbound_menu())
@@ -113,40 +113,49 @@ def handle_message(message: dict):
         if text == BTN_SETTINGS:
             show_settings_menu(chat_id, user_id)
             return
-        
-        # Handle sub-menu navigation
-        if state == 'outbound:menu':
-            if text == '🔍 Парсинг':
-                start_chat_parsing(chat_id, user_id)
-                return
-            if text == '📤 Рассылка':
-                show_mailing_menu(chat_id, user_id)
-                return
-            if text == '📝 Контент':
-                show_content_menu(chat_id, user_id)
-                return
-        
-        if state == 'accounts:menu':
-            if text == '👤 Аккаунты':
-                show_accounts_menu(chat_id, user_id)
-                return
-            if text == '🏭 Фабрика':
-                show_factory_menu(chat_id, user_id)
-                return
-            if text == '🤖 Ботовод':
-                show_herder_menu(chat_id, user_id)
-                return
-        
-        if state == 'analytics:menu':
-            if text == '👥 Аудитории':
-                show_audiences_menu(chat_id, user_id)
-                return
-            if text == '📄 Шаблоны':
-                show_templates_menu(chat_id, user_id)
-                return
-            if text == '📈 Аналитика':
-                show_analytics_menu(chat_id, user_id)
-                return
+
+    # Handle sub-menu navigation
+    if state == 'outbound:menu':
+        if text == '🔍 Парсинг':
+            start_chat_parsing(chat_id, user_id)
+            return
+        if text == '📤 Рассылка':
+            show_mailing_menu(chat_id, user_id)
+            return
+        if text == '📝 Контент':
+            show_content_menu(chat_id, user_id)
+            return
+        if text == BTN_BACK or text == '◀️ Главное меню':
+            show_main_menu(chat_id, user_id)
+            return
+
+    if state == 'accounts:menu':
+        if text == '👤 Аккаунты':
+            show_accounts_menu(chat_id, user_id)
+            return
+        if text == '🏭 Фабрика':
+            show_factory_menu(chat_id, user_id)
+            return
+        if text == '🤖 Ботовод':
+            show_herder_menu(chat_id, user_id)
+            return
+        if text == BTN_BACK or text == '◀️ Главное меню':
+            show_main_menu(chat_id, user_id)
+            return
+
+    if state == 'analytics:menu':
+        if text == '👥 Аудитории':
+            show_audiences_menu(chat_id, user_id)
+            return
+        if text == '📄 Шаблоны':
+            show_templates_menu(chat_id, user_id)
+            return
+        if text == '📈 Аналитика':
+            show_analytics_menu(chat_id, user_id)
+            return
+        if text == BTN_BACK or text == '◀️ Главное меню':
+            show_main_menu(chat_id, user_id)
+            return
 
     # Handle media for template creation
     if state == 'templates:create_text':
@@ -251,7 +260,7 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps({
             'status': 'ok',
             'message': 'Telegram Bot is running',
-            'version': '3.1.0',
+            'version': '3.2.0',
             'modules': {
                 'core': ['parsing', 'audiences', 'templates', 'accounts', 'mailing', 'stats', 'settings'],
                 'new': ['herder', 'factory', 'content', 'analytics']
