@@ -23,7 +23,7 @@ BTN_NEGATIVE_RESPONSES = '🛡 Негативные ответы'
 
 
 def show_stats_menu(chat_id: int, user_id: int):
-    """Show statistics menu"""
+    """Show statistics menu with comprehensive description"""
     DB.set_user_state(user_id, 'stats:menu')
     
     stats = DB.get_user_stats(user_id)
@@ -38,7 +38,7 @@ def show_stats_menu(chat_id: int, user_id: int):
     delay_mult = DB.get_delay_multiplier_for_hour(user_id, current_hour)
     delay_info = ""
     if delay_mult != 1.0:
-        delay_info = f"\n⏱ Множитель задержки сейчас: <b>x{delay_mult:.1f}</b>"
+        delay_info = f"\n⏱ Множитель задержки: <b>x{delay_mult:.1f}</b>"
     
     # System status
     system_status = ""
@@ -46,16 +46,25 @@ def show_stats_menu(chat_id: int, user_id: int):
         system_status = "\n\n🚨 <b>СИСТЕМА ПРИОСТАНОВЛЕНА</b>"
     
     send_message(chat_id,
-        f"📈 <b>Статистика</b>{system_status}\n\n"
-        f"📊 <b>Аудитории:</b> {stats['audiences']} (готовых: {stats['audiences_completed']})\n"
-        f"📄 <b>Шаблоны:</b> {stats['templates']}\n"
-        f"👤 <b>Аккаунты:</b> {stats['accounts']} (активных: {stats['accounts_active']})\n"
-        f"📤 <b>Кампании:</b> {stats['campaigns']}\n\n"
-        f"👥 <b>Всего спарсено:</b> {stats['total_parsed']}\n"
-        f"✅ <b>Отправлено:</b> {stats['total_sent']}\n"
-        f"❌ <b>Ошибок:</b> {stats['total_failed']}\n"
-        f"📊 <b>Успешность:</b> {success_rate}%\n\n"
-        f"⏰ <b>Лучшие часы:</b> {best_hours_str}{delay_info}",
+        f"📈 <b>Статистика и метрики</b>{system_status}\n\n"
+        f"<i>Детальный обзор работы системы,\n"
+        f"эффективности рассылок и трендов.</i>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>📊 РЕСУРСЫ</b>\n"
+        f"├ Аудитории: {stats['audiences']} (готовых: {stats['audiences_completed']})\n"
+        f"├ Шаблоны: {stats['templates']}\n"
+        f"├ Аккаунты: {stats['accounts']} (активных: {stats['accounts_active']})\n"
+        f"└ Кампании: {stats['campaigns']}\n\n"
+        f"<b>📤 РЕЗУЛЬТАТЫ</b>\n"
+        f"├ Спарсено контактов: {stats['total_parsed']}\n"
+        f"├ ✅ Отправлено: {stats['total_sent']}\n"
+        f"├ ❌ Ошибок: {stats['total_failed']}\n"
+        f"└ Успешность: <b>{success_rate}%</b>\n\n"
+        f"<b>⏰ АКТИВНОСТЬ</b>\n"
+        f"├ Лучшие часы: {best_hours_str}{delay_info}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"💡 <i>Анализируйте ошибки и негативные ответы\n"
+        f"для улучшения стратегии рассылок</i>",
         kb_stats_menu()
     )
 

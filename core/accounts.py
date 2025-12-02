@@ -56,7 +56,7 @@ def _get_reliability_text(reliability: float) -> str:
 
 
 def show_accounts_menu(chat_id: int, user_id: int):
-    """Show accounts menu"""
+    """Show accounts menu with comprehensive description"""
     DB.set_user_state(user_id, 'accounts:menu')
     
     total = DB.count_user_accounts(user_id)
@@ -80,12 +80,24 @@ def show_accounts_menu(chat_id: int, user_id: int):
     reliability_text = _get_reliability_text(avg_reliability)
     
     send_message(chat_id,
-        f"👤 <b>Аккаунты</b>\n\n"
-        f"📊 Всего: <b>{total}</b>\n"
-        f"✅ Активных: <b>{active}</b>\n"
-        f"📁 Папок: <b>{len(folders)}</b>\n\n"
-        f"💳 Доступно сообщений: <b>{total_available}</b>\n"
-        f"{reliability_emoji} Средняя надёжность: <b>{avg_reliability:.0f}%</b> ({reliability_text})",
+        f"👤 <b>Управление аккаунтами</b>\n\n"
+        f"<i>Просмотр, организация и управление\n"
+        f"Telegram-аккаунтами для рассылок.</i>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>📊 СТАТИСТИКА</b>\n"
+        f"├ Всего аккаунтов: <b>{total}</b>\n"
+        f"├ Активных: <b>{active}</b>\n"
+        f"├ Папок: <b>{len(folders)}</b>\n"
+        f"├ Доступно сообщений: <b>{total_available}</b>\n"
+        f"└ {reliability_emoji} Надёжность: <b>{avg_reliability:.0f}%</b> ({reliability_text})\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>🛠 Возможности:</b>\n"
+        f"• <b>Список</b> — просмотр всех аккаунтов\n"
+        f"• <b>Папки</b> — группировка по категориям\n"
+        f"• <b>Добавить</b> — подключить новый аккаунт\n"
+        f"• <b>Прогноз</b> — оценка будущих лимитов\n\n"
+        f"💡 <i>Рекомендация: группируйте аккаунты\n"
+        f"по проектам или типам рассылок</i>",
         kb_accounts_menu()
     )
 

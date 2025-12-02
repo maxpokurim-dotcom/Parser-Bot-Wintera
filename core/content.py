@@ -39,7 +39,7 @@ BTN_SUMMARY_PERIOD_MONTH = '📆 Месяц'
 BTN_SUMMARY_PERIOD_CUSTOM = '📆 Свой'
 
 def show_content_menu(chat_id: int, user_id: int):
-    """Show content manager main menu"""
+    """Show content manager main menu with comprehensive description"""
     DB.set_user_state(user_id, 'content:menu')
     # Get stats
     channels = DB.get_user_channels(user_id)
@@ -59,13 +59,22 @@ def show_content_menu(chat_id: int, user_id: int):
         trends = []
 
     send_message(chat_id,
-        f"📝 <b>Контент-менеджер</b>\n"
-        f"ИИ-генерация контента и анализ\n"
-        f"📊 <b>Статистика:</b>\n"
-        f"├ Мои каналы: <b>{len(channels)}</b>\n"
-        f"├ Сгенерировано: <b>{len(generated)}</b>\n"
+        f"📝 <b>Контент-менеджер (ИИ)</b>\n\n"
+        f"<i>Интеллектуальная генерация контента\n"
+        f"с помощью Yandex GPT. Анализ трендов,\n"
+        f"создание постов и управление каналами.</i>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>📊 СТАТИСТИКА</b>\n"
+        f"├ Подключённых каналов: <b>{len(channels)}</b>\n"
+        f"├ Сгенерировано контента: <b>{len(generated)}</b>\n"
         f"└ Актуальных трендов: <b>{len(trends)}</b>\n"
-        f"<i>Все генерации выполняются на стороне сервера</i>",
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>🛠 Возможности:</b>\n"
+        f"• <b>Генерация</b> — создание постов с ИИ\n"
+        f"• <b>Тренды</b> — анализ популярных тем\n"
+        f"• <b>Итоги</b> — суммаризация обсуждений\n"
+        f"• <b>Каналы</b> — управление связанными каналами\n\n"
+        f"⚙️ <i>Требуется Yandex GPT API ключ в настройках</i>",
         kb_content_menu()
     )
 
@@ -404,18 +413,23 @@ def _show_trend_confirmation(chat_id: int, user_id: int, saved: dict):
 
 def _handle_trend_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     if text == '💾 Сохранить' or text == '✅ Подтвердить':
-        # Create trend analysis task — используем existing method
-        snapshot = DB.create_trend_snapshot(
+        # Create trend analysis task - save as generated content with type 'trend'
+        task = DB.save_generated_content(
             user_id=user_id,
-            niche=saved.get('niche', 'general'),
-            source_channel_id=saved['channel_id'],
-            status='pending',
-            created_at=DB.now_moscow().isoformat()
+            content="",
+            content_type='trend',
+            title=f"Анализ трендов",
+            generation_params={
+                'niche': saved.get('niche', 'general'),
+                'channel_id': saved['channel_id'],
+                'type': 'trend_analysis'
+            },
+            channel_id=saved['channel_id']
         )
-        if snapshot:
+        if task:
             send_message(chat_id,
                 f"✅ <b>Анализ запущен!</b>\n"
-                f"🆔 ID: #{snapshot['id']}\n"
+                f"🆔 ID: #{task['id']}\n"
                 f"Статус: ⏳ В обработке",
                 kb_content_menu()
             )

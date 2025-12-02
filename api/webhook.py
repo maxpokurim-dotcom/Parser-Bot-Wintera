@@ -7,7 +7,9 @@ import logging
 from http.server import BaseHTTPRequestHandler
 from core.db import DB
 from core.telegram import send_message, answer_callback
-from core.keyboards import kb_main_menu
+from core.keyboards import (
+    kb_main_menu, kb_outbound_menu, kb_accounts_menu, kb_analytics_menu
+)
 # Import handlers
 from core.menu import (
     show_main_menu, handle_start, handle_cancel,
@@ -100,15 +102,39 @@ def handle_message(message: dict):
     if not state or state in ['main:menu']:
         if text == BTN_OUTBOUND:
             DB.set_user_state(user_id, 'outbound:menu')
-            send_message(chat_id, "📥 <b>Исходящие действия</b>", kb_outbound_menu())
+            send_message(chat_id, 
+                "📥 <b>Исходящие действия</b>\n\n"
+                "В этом разделе вы можете:\n"
+                "• 🔍 <b>Парсинг</b> — сбор аудитории из чатов и комментариев\n"
+                "• 📤 <b>Рассылка</b> — массовая отправка сообщений\n"
+                "• 📝 <b>Контент</b> — ИИ-генерация постов и анализ трендов\n\n"
+                "<i>Выберите нужное действие:</i>",
+                kb_outbound_menu()
+            )
             return
         if text == BTN_ACCOUNTS_HUB:
             DB.set_user_state(user_id, 'accounts:menu')
-            send_message(chat_id, "🤖 <b>Управление аккаунтами</b>", kb_accounts_menu())
+            send_message(chat_id, 
+                "🤖 <b>Управление аккаунтами</b>\n\n"
+                "Управляйте вашими Telegram-аккаунтами:\n"
+                "• 👤 <b>Аккаунты</b> — статус, лимиты, надёжность\n"
+                "• 🏭 <b>Фабрика</b> — создание и прогрев новых аккаунтов\n"
+                "• 🤖 <b>Ботовод</b> — симуляция живой активности в каналах\n\n"
+                "<i>💡 Совет: регулярно проверяйте здоровье аккаунтов</i>",
+                kb_accounts_menu()
+            )
             return
         if text == BTN_ANALYTICS_DATA:
             DB.set_user_state(user_id, 'analytics:menu')
-            send_message(chat_id, "📊 <b>Аналитика и данные</b>", kb_analytics_menu())
+            send_message(chat_id, 
+                "📊 <b>Аналитика и данные</b>\n\n"
+                "Работа с данными и аналитика:\n"
+                "• 👥 <b>Аудитории</b> — управление спарсенной базой\n"
+                "• 📄 <b>Шаблоны</b> — готовые сообщения для рассылок\n"
+                "• 📈 <b>Аналитика</b> — heatmap, риски, эффективность\n\n"
+                "<i>📌 Используйте теги для организации аудиторий</i>",
+                kb_analytics_menu()
+            )
             return
         if text == BTN_SETTINGS:
             show_settings_menu(chat_id, user_id)
@@ -117,12 +143,15 @@ def handle_message(message: dict):
     # Handle sub-menu navigation
     if state == 'outbound:menu':
         if text == '🔍 Парсинг':
+            # Descriptive message is shown inside start_chat_parsing
             start_chat_parsing(chat_id, user_id)
             return
         if text == '📤 Рассылка':
+            # Descriptive message is shown inside show_mailing_menu
             show_mailing_menu(chat_id, user_id)
             return
         if text == '📝 Контент':
+            # Descriptive message is shown inside show_content_menu
             show_content_menu(chat_id, user_id)
             return
         if text == BTN_BACK or text == '◀️ Главное меню':
@@ -131,12 +160,15 @@ def handle_message(message: dict):
 
     if state == 'accounts:menu':
         if text == '👤 Аккаунты':
+            # Descriptive message is shown inside show_accounts_menu
             show_accounts_menu(chat_id, user_id)
             return
         if text == '🏭 Фабрика':
+            # Descriptive message is shown inside show_factory_menu
             show_factory_menu(chat_id, user_id)
             return
         if text == '🤖 Ботовод':
+            # Descriptive message is shown inside show_herder_menu
             show_herder_menu(chat_id, user_id)
             return
         if text == BTN_BACK or text == '◀️ Главное меню':
@@ -145,12 +177,15 @@ def handle_message(message: dict):
 
     if state == 'analytics:menu':
         if text == '👥 Аудитории':
+            # Descriptive message is shown inside show_audiences_menu
             show_audiences_menu(chat_id, user_id)
             return
         if text == '📄 Шаблоны':
+            # Descriptive message is shown inside show_templates_menu
             show_templates_menu(chat_id, user_id)
             return
         if text == '📈 Аналитика':
+            # Descriptive message is shown inside show_analytics_menu
             show_analytics_menu(chat_id, user_id)
             return
         if text == BTN_BACK or text == '◀️ Главное меню':

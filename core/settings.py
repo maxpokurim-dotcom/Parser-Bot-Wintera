@@ -42,7 +42,7 @@ BTN_ADD_WORD = '➕ Добавить слово'
 BTN_LIST_WORDS = '📋 Список слов'
 
 def show_settings_menu(chat_id: int, user_id: int):
-    """Show settings menu - Extended"""
+    """Show settings menu - Extended with comprehensive description"""
     DB.set_user_state(user_id, 'settings:menu')
     settings = DB.get_user_settings(user_id)
     # Basic settings
@@ -63,20 +63,25 @@ def show_settings_menu(chat_id: int, user_id: int):
     yagpt = '✅' if settings.get('yagpt_api_key') else '❌'
     onlinesim = '✅' if settings.get('onlinesim_api_key') else '❌'
     send_message(chat_id,
-        f"⚙️ <b>Настройки</b>\n"
-        f"<b>Рассылка:</b>\n"
+        f"⚙️ <b>Настройки</b>\n\n"
+        f"<i>Настройте поведение бота, задержки, API-интеграции\n"
+        f"и параметры безопасности под ваши задачи.</i>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>📤 РАССЫЛКА</b>\n"
         f"├ 🌙 Тихие часы: {quiet}\n"
         f"├ 🔔 Уведомления: {notify}\n"
         f"├ ⏱ Задержка: {delay_min}-{delay_max} сек\n"
         f"├ 🗓 Кэш: {cache_ttl} дней\n"
         f"├ 🛡 Авто-ЧС: {auto_bl}\n"
-        f"└ 🔥 Прогрев: {warmup}\n"
-        f"<b>Система:</b>\n"
-        f"├ ⚠️ Риск: {risk}\n"
-        f"└ 🧠 Обучение: {learning}\n"
-        f"<b>API:</b>\n"
-        f"├ 🔑 YaGPT: {yagpt}\n"
-        f"└ 📱 OnlineSim: {onlinesim}",
+        f"└ 🔥 Прогрев: {warmup}\n\n"
+        f"<b>🛡 СИСТЕМА</b>\n"
+        f"├ ⚠️ Риск-толерантность: {risk}\n"
+        f"└ 🧠 Обучение: {learning}\n\n"
+        f"<b>🔑 API ИНТЕГРАЦИИ</b>\n"
+        f"├ 🔑 Yandex GPT: {yagpt}\n"
+        f"└ 📱 OnlineSim: {onlinesim}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"💡 <i>Нажмите на пункт меню для настройки</i>",
         kb_settings_menu()
     )
 
