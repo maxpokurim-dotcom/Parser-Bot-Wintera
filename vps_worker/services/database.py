@@ -273,11 +273,25 @@ class Database:
     def update_audience_source(self, source_id: int, **kwargs) -> bool:
         """Update audience source"""
         try:
-            kwargs['updated_at'] = datetime.utcnow().isoformat()
-            self.client.table('audience_sources').update(kwargs).eq('id', source_id).execute()
+            # Only use columns that exist in audience_sources
+            allowed = {'status', 'error', 'updated_at', 'total_count', 'parsed_count', 'name'}
+            filtered = {k: v for k, v in kwargs.items() if k in allowed}
+            filtered['updated_at'] = datetime.utcnow().isoformat()
+            
+            self.client.table('audience_sources').update(filtered).eq('id', source_id).execute()
             return True
         except Exception as e:
             logger.error(f"Error updating audience source: {e}")
+            # Try with minimal update (just status)
+            try:
+                if 'status' in kwargs:
+                    self.client.table('audience_sources').update({
+                        'status': kwargs['status'],
+                        'updated_at': datetime.utcnow().isoformat()
+                    }).eq('id', source_id).execute()
+                    return True
+            except Exception:
+                pass
             return False
     
     def get_audience_users(
@@ -315,12 +329,25 @@ class Database:
             if not users:
                 return 0
             
+            # Get existing user IDs to avoid duplicates
+            existing = set()
+            try:
+                result = self.client.table('parsed_audiences').select('tg_user_id')\
+                    .eq('source_id', source_id).execute()
+                existing = {r['tg_user_id'] for r in result.data}
+            except Exception:
+                pass
+            
             # Prepare data matching parsed_audiences schema
             rows = []
             for user in users:
+                tg_user_id = user.get('telegram_id') or user.get('tg_user_id')
+                if tg_user_id in existing:
+                    continue
+                    
                 rows.append({
                     'source_id': source_id,
-                    'tg_user_id': user.get('telegram_id') or user.get('tg_user_id'),
+                    'tg_user_id': tg_user_id,
                     'username': user.get('username'),
                     'first_name': user.get('first_name'),
                     'last_name': user.get('last_name'),
@@ -332,11 +359,11 @@ class Database:
                     'created_at': datetime.utcnow().isoformat()
                 })
             
-            # Insert with upsert to handle duplicates
-            result = self.client.table('parsed_audiences').upsert(
-                rows, 
-                on_conflict='source_id,tg_user_id'
-            ).execute()
+            if not rows:
+                return 0
+            
+            # Simple insert (duplicates filtered above)
+            result = self.client.table('parsed_audiences').insert(rows).execute()
             
             return len(result.data) if result.data else 0
         except Exception as e:
@@ -366,11 +393,26 @@ class Database:
     def update_parsing_task(self, task_id: int, **kwargs) -> bool:
         """Update parsing task (audience_source)"""
         try:
-            kwargs['updated_at'] = datetime.utcnow().isoformat()
-            self.client.table('audience_sources').update(kwargs).eq('id', task_id).execute()
+            # Only use columns that exist in audience_sources
+            allowed = {'status', 'error', 'updated_at', 'total_count', 'parsed_count'}
+            filtered = {k: v for k, v in kwargs.items() if k in allowed}
+            filtered['updated_at'] = datetime.utcnow().isoformat()
+            
+            if filtered:
+                self.client.table('audience_sources').update(filtered).eq('id', task_id).execute()
             return True
         except Exception as e:
             logger.error(f"Error updating parsing task: {e}")
+            # Try with minimal update (just status)
+            try:
+                if 'status' in kwargs:
+                    self.client.table('audience_sources').update({
+                        'status': kwargs['status'],
+                        'updated_at': datetime.utcnow().isoformat()
+                    }).eq('id', task_id).execute()
+                    return True
+            except Exception:
+                pass
             return False
     
     # ===========================================
