@@ -143,6 +143,23 @@ class Database:
             logger.error(f"Error resetting account errors: {e}")
             return False
     
+    # ===========================================
+    # USER SETTINGS
+    # ===========================================
+    
+    def get_user_settings(self, user_id: int) -> Optional[Dict]:
+        """Get user settings including AI model preferences"""
+        try:
+            result = self.client.table('user_settings').select('*').eq('user_id', user_id).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            logger.error(f"Error getting user settings: {e}")
+            return None
+    
+    # ===========================================
+    # FLOOD WAIT
+    # ===========================================
+    
     def set_account_flood_wait(self, account_id: int, seconds: int) -> bool:
         """Set account flood wait status"""
         try:

@@ -188,12 +188,15 @@ class ParsingWorker(BaseWorker):
         Parse users from chat messages.
         
         Reads last N messages from chat and collects unique users who wrote them.
-        Supports keyword filtering for semantic parsing.
+        Supports:
+        - Keyword filtering (fast, local)
+        - Semantic/AI filtering (batch analysis via YandexGPT)
         """
         task_id = task['id']
         source_id = task.get('source_id') or task['id']
         phone = account['phone']
         account_id = account['id']
+        user_id = task.get('owner_id') or task.get('user_id')
         
         # Get filters from task (stored as JSON in 'filters' column)
         filters = task.get('filters') or {}
@@ -216,6 +219,15 @@ class ParsingWorker(BaseWorker):
         keywords = task.get('keyword_filter') or filters.get('keywords') or []
         keyword_match_mode = task.get('keyword_match_mode', 'any')  # 'any' or 'all'
         
+        # Semantic config for AI-based filtering
+        semantic_config = filters.get('semantic_config')
+        use_semantic = bool(semantic_config and semantic_config.get('topic'))
+        
+        if use_semantic:
+            self.logger.info(f"🧠 Semantic parsing enabled: '{semantic_config.get('topic')}'")
+            # Load user's AI model preference
+            await self._setup_ai_model(user_id)
+        
         self.logger.info(f"Parsing message authors from {channel} (last {message_limit} messages)")
         
         # Get client
@@ -229,8 +241,10 @@ class ParsingWorker(BaseWorker):
             # Get chat entity
             chat_entity = await client.get_entity(channel)
             
-            # Collect unique users from messages
+            # Collect messages and users
             users_collected = {}  # telegram_id -> user data
+            messages_for_analysis = []  # For semantic analysis: [{id, text, sender_id}]
+            message_senders = {}  # message_id -> sender data
             messages_processed = 0
             keyword_matches = 0
             
@@ -252,22 +266,7 @@ class ParsingWorker(BaseWorker):
                 if not hasattr(sender, 'bot'):
                     continue
                 
-                # Keyword filtering
-                if keywords and message.text:
-                    text_lower = message.text.lower()
-                    
-                    if keyword_match_mode == 'all':
-                        # All keywords must be present
-                        keyword_found = all(kw.lower() in text_lower for kw in keywords)
-                    else:
-                        # Any keyword matches (default)
-                        keyword_found = any(kw.lower() in text_lower for kw in keywords)
-                    
-                    if not keyword_found:
-                        continue
-                    keyword_matches += 1
-                
-                # Apply filters
+                # Apply user filters first
                 if exclude_bots and sender.bot:
                     continue
                 
@@ -277,22 +276,98 @@ class ParsingWorker(BaseWorker):
                 if only_with_photo and not sender.photo:
                     continue
                 
-                # Add user if not already collected
-                if sender.id not in users_collected:
-                    users_collected[sender.id] = {
-                        'telegram_id': sender.id,
-                        'tg_user_id': sender.id,
-                        'username': sender.username,
-                        'first_name': sender.first_name,
-                        'last_name': sender.last_name,
-                        'is_premium': getattr(sender, 'premium', False),
-                        'is_bot': sender.bot or False,
-                        'has_photo': sender.photo is not None
-                    }
+                # Prepare user data
+                user_data = {
+                    'telegram_id': sender.id,
+                    'tg_user_id': sender.id,
+                    'username': sender.username,
+                    'first_name': sender.first_name,
+                    'last_name': sender.last_name,
+                    'is_premium': getattr(sender, 'premium', False),
+                    'is_bot': sender.bot or False,
+                    'has_photo': sender.photo is not None
+                }
+                
+                # Semantic mode: collect messages for batch analysis
+                if use_semantic and message.text:
+                    messages_for_analysis.append({
+                        'id': message.id,
+                        'text': message.text
+                    })
+                    message_senders[message.id] = user_data
+                
+                # Keyword mode: filter locally
+                elif keywords:
+                    if not message.text:
+                        continue
+                    
+                    text_lower = message.text.lower()
+                    
+                    if keyword_match_mode == 'all':
+                        keyword_found = all(kw.lower() in text_lower for kw in keywords)
+                    else:
+                        keyword_found = any(kw.lower() in text_lower for kw in keywords)
+                    
+                    if not keyword_found:
+                        continue
+                    
+                    keyword_matches += 1
+                    if sender.id not in users_collected:
+                        users_collected[sender.id] = user_data
+                
+                # No filter mode: collect all
+                else:
+                    if sender.id not in users_collected:
+                        users_collected[sender.id] = user_data
                 
                 # Progress log every 200 messages
                 if messages_processed % 200 == 0:
-                    self.logger.info(f"Processed {messages_processed} messages, found {len(users_collected)} unique users")
+                    self.logger.info(f"Processed {messages_processed} messages...")
+            
+            # Semantic analysis: process collected messages in batches
+            if use_semantic and messages_for_analysis:
+                self.logger.info(f"🧠 Analyzing {len(messages_for_analysis)} messages with AI...")
+                
+                from services.ai_service import ai_service
+                
+                topic = semantic_config.get('topic', '')
+                threshold = semantic_config.get('threshold', 0.7)
+                depth = semantic_config.get('depth', 'medium')
+                
+                BATCH_SIZE = 15  # Messages per AI request
+                matching_message_ids = set()
+                
+                for i in range(0, len(messages_for_analysis), BATCH_SIZE):
+                    batch = messages_for_analysis[i:i + BATCH_SIZE]
+                    
+                    self.logger.info(f"  Batch {i // BATCH_SIZE + 1}: analyzing {len(batch)} messages...")
+                    
+                    try:
+                        matched_ids = await ai_service.analyze_messages_semantic(
+                            messages=batch,
+                            topic=topic,
+                            threshold=threshold,
+                            depth=depth
+                        )
+                        matching_message_ids.update(matched_ids)
+                        
+                        self.logger.info(f"  Found {len(matched_ids)} matches in this batch")
+                        
+                    except Exception as e:
+                        self.logger.error(f"  AI analysis error: {e}")
+                    
+                    # Rate limiting between batches
+                    await asyncio.sleep(1)
+                
+                # Collect users from matching messages
+                for msg_id in matching_message_ids:
+                    if msg_id in message_senders:
+                        sender_data = message_senders[msg_id]
+                        sender_id = sender_data['telegram_id']
+                        if sender_id not in users_collected:
+                            users_collected[sender_id] = sender_data
+                
+                self.logger.info(f"🧠 Semantic analysis complete: {len(matching_message_ids)} matching messages, {len(users_collected)} unique users")
             
             filtered_users = list(users_collected.values())
             
@@ -314,12 +389,34 @@ class ParsingWorker(BaseWorker):
             if source_id:
                 db.update_audience_source(source_id, status='completed', total_count=total_parsed)
             
-            await notifier.notify_parsing_completed(source_id or task_id, total_parsed, f"сообщения {channel}")
+            mode = "🧠 семантический" if use_semantic else ("🔑 по ключевым" if keywords else "📝 все сообщения")
+            await notifier.notify_parsing_completed(source_id or task_id, total_parsed, f"{mode} {channel}")
             self.logger.info(f"Message parsing completed: {total_parsed} users from {channel}")
             
         except Exception as e:
             self.logger.error(f"Error parsing messages: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             db.update_parsing_task(task_id, status='error', error=str(e))
+    
+    async def _setup_ai_model(self, user_id: int):
+        """Load user's AI model preference from database"""
+        try:
+            if not user_id:
+                return
+            
+            # Get user settings
+            settings = db.get_user_settings(user_id)
+            if not settings:
+                return
+            
+            yandex_model = settings.get('yandex_gpt_model')
+            if yandex_model:
+                from services.ai_service import ai_service
+                ai_service.set_yandex_model(yandex_model)
+                self.logger.info(f"Using AI model: {yandex_model}")
+        except Exception as e:
+            self.logger.warning(f"Could not load AI model preference: {e}")
     
     async def _parse_comments(self, task: dict, account: dict, channel: str):
         """Parse users from post comments"""

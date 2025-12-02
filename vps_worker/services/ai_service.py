@@ -20,6 +20,17 @@ class AIProvider(Enum):
     OPENAI = "openai"
 
 
+# Available Yandex models
+YANDEX_MODELS = {
+    'aliceai-llm': 'Alice AI LLM (новейшая)',
+    'yandexgpt-5.1': 'YandexGPT 5.1 Pro',
+    'yandexgpt-5-pro': 'YandexGPT 5 Pro', 
+    'yandexgpt-5-lite': 'YandexGPT 5 Lite',
+    'yandexgpt-4-lite': 'YandexGPT 4 Lite',
+    'yandexgpt-lite': 'YandexGPT Lite (legacy)',
+}
+
+
 @dataclass
 class AIConfig:
     """AI service configuration"""
@@ -27,7 +38,7 @@ class AIConfig:
     yandex_folder_id: str = ""
     yandex_api_key: str = ""
     yandex_iam_token: str = ""
-    yandex_model: str = "yandexgpt-lite"
+    yandex_model: str = "yandexgpt-5-lite"  # Default model
     
     # OpenAI
     openai_api_key: str = ""
@@ -44,7 +55,7 @@ class AIConfig:
             yandex_folder_id=os.getenv('YANDEX_CLOUD_FOLDER_ID', ''),
             yandex_api_key=os.getenv('YANDEX_CLOUD_API_KEY', ''),
             yandex_iam_token=os.getenv('YANDEX_CLOUD_IAM_TOKEN', ''),
-            yandex_model=os.getenv('YANDEX_GPT_MODEL', 'yandexgpt-lite'),
+            yandex_model=os.getenv('YANDEX_GPT_MODEL', 'yandexgpt-5-lite'),
             openai_api_key=os.getenv('OPENAI_API_KEY', ''),
             openai_model=os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),
         )
@@ -75,9 +86,18 @@ class YandexGPT:
         
         return headers
     
-    def _get_model_uri(self) -> str:
+    def _get_model_uri(self, model_override: Optional[str] = None) -> str:
         """Get model URI"""
-        return f"gpt://{self.folder_id}/{self.model}"
+        model = model_override or self.model
+        # If already a full URI, return as is
+        if model.startswith('gpt://'):
+            return model
+        return f"gpt://{self.folder_id}/{model}/latest"
+    
+    def set_model(self, model: str):
+        """Set the model to use"""
+        self.model = model
+        logger.info(f"YandexGPT model set to: {model}")
     
     async def generate(
         self, 
@@ -120,6 +140,8 @@ class YandexGPT:
             },
             "messages": messages
         }
+        
+        logger.debug(f"YandexGPT request with model: {self._get_model_uri()}")
         
         try:
             async with aiohttp.ClientSession() as session:
@@ -524,6 +546,110 @@ class AIService:
         if await self.openai.is_available():
             return "OpenAI"
         return None
+    
+    def set_yandex_model(self, model: str):
+        """Set YandexGPT model"""
+        self.yandex.set_model(model)
+    
+    async def analyze_messages_semantic(
+        self,
+        messages: List[Dict],
+        topic: str,
+        threshold: float = 0.7,
+        depth: str = "medium"
+    ) -> List[int]:
+        """
+        Analyze batch of messages for semantic relevance to topic.
+        
+        Args:
+            messages: List of dicts with 'id' and 'text' keys
+            topic: Topic/theme to match against
+            threshold: Relevance threshold (0-1)
+            depth: Search depth (narrow/medium/wide)
+        
+        Returns:
+            List of message IDs that match the topic
+        """
+        if not messages:
+            return []
+        
+        # Build message list for prompt
+        msg_list = []
+        for i, msg in enumerate(messages):
+            msg_id = msg.get('id', i)
+            text = msg.get('text', '')[:300]  # Truncate long messages
+            if text:
+                msg_list.append(f"[{msg_id}] {text}")
+        
+        if not msg_list:
+            return []
+        
+        messages_text = "\n".join(msg_list)
+        
+        # Depth affects how strict the matching is
+        depth_instructions = {
+            'narrow': "Ищи ТОЛЬКО сообщения, которые ТОЧНО соответствуют теме. Будь очень строгим.",
+            'medium': "Ищи сообщения, которые соответствуют теме напрямую или косвенно связаны с ней.",
+            'wide': "Ищи любые сообщения, которые хоть как-то связаны с темой или её общей областью."
+        }
+        
+        depth_instruction = depth_instructions.get(depth, depth_instructions['medium'])
+        
+        prompt = f"""Проанализируй сообщения и найди те, которые соответствуют теме.
+
+ТЕМА: {topic}
+
+ИНСТРУКЦИЯ: {depth_instruction}
+Порог релевантности: {int(threshold * 100)}%
+
+СООБЩЕНИЯ:
+{messages_text}
+
+ЗАДАЧА: Верни ТОЛЬКО номера сообщений (в квадратных скобках), которые соответствуют теме.
+Формат ответа: список номеров через запятую, например: 1, 5, 12, 23
+Если ни одно сообщение не подходит, верни: НЕТ
+
+ОТВЕТ:"""
+
+        system_prompt = """Ты анализатор сообщений. Твоя задача - определить релевантность сообщений заданной теме.
+Отвечай ТОЛЬКО номерами сообщений или словом "НЕТ". Никаких пояснений."""
+
+        result = await self.generate(
+            prompt=prompt,
+            custom_system_prompt=system_prompt,
+            max_tokens=200,
+            temperature=0.3  # Low temperature for consistent results
+        )
+        
+        if not result:
+            logger.warning("AI returned no result for semantic analysis")
+            return []
+        
+        logger.debug(f"AI semantic response: {result}")
+        
+        # Parse response - extract numbers
+        if 'НЕТ' in result.upper() or 'NONE' in result.upper():
+            return []
+        
+        import re
+        # Find all numbers in the response
+        numbers = re.findall(r'\d+', result)
+        matching_ids = []
+        
+        # Map back to original message IDs
+        msg_id_map = {i: msg.get('id', i) for i, msg in enumerate(messages)}
+        valid_ids = {msg.get('id', i) for i, msg in enumerate(messages)}
+        
+        for num_str in numbers:
+            try:
+                num = int(num_str)
+                if num in valid_ids:
+                    matching_ids.append(num)
+            except ValueError:
+                continue
+        
+        logger.info(f"Semantic analysis: {len(matching_ids)} matches out of {len(messages)} messages")
+        return matching_ids
 
 
 # Global AI service instance

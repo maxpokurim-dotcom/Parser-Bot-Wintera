@@ -711,8 +711,18 @@ def kb_ai_settings():
 def kb_api_keys():
     """API keys settings"""
     return reply_keyboard([
-        ['🔑 Yandex GPT', '📱 OnlineSim'],
-        ['🌐 Прокси'],
+        ['🔑 Yandex GPT', '🧠 Выбор модели'],
+        ['📱 OnlineSim', '🌐 Прокси'],
+        ['◀️ Назад']
+    ])
+
+
+def kb_yandex_models():
+    """Yandex GPT model selection"""
+    return reply_keyboard([
+        ['🆕 Alice AI LLM'],
+        ['YandexGPT 5.1 Pro', 'YandexGPT 5 Pro'],
+        ['YandexGPT 5 Lite', 'YandexGPT 4 Lite'],
         ['◀️ Назад']
     ])
 
