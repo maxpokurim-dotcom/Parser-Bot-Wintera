@@ -22,7 +22,8 @@ from workers import (
     ParsingWorker,
     HerderWorker,
     WarmupWorker,
-    SchedulerWorker
+    SchedulerWorker,
+    FactoryWorker
 )
 
 
@@ -119,6 +120,7 @@ async def main():
     manager.add_worker(HerderWorker(), interval=60)        # Herder activity
     manager.add_worker(WarmupWorker(), interval=300)       # Warmup every 5 min
     manager.add_worker(SchedulerWorker(), interval=30)     # Check scheduled tasks
+    manager.add_worker(FactoryWorker(), interval=60)       # Auto-create accounts
     
     # Setup signal handlers for graceful shutdown
     loop = asyncio.get_event_loop()

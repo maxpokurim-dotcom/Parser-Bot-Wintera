@@ -170,6 +170,101 @@ async def test_notifier():
         return False
 
 
+async def test_yandex_gpt():
+    """Test YandexGPT connection"""
+    print("\n" + "=" * 50)
+    print("Testing YandexGPT")
+    print("=" * 50)
+    
+    try:
+        from config import config
+        
+        if not config.yandex_gpt.is_configured:
+            print(f"⚠️  YandexGPT not configured (optional)")
+            return True
+        
+        from services.ai_service import ai_service
+        
+        result = await ai_service.generate(
+            prompt="Скажи 'Привет' одним словом",
+            task="content_generate",
+            max_tokens=10
+        )
+        
+        if result:
+            print(f"✅ YandexGPT working")
+            print(f"   Response: {result[:50]}...")
+        else:
+            print(f"⚠️  YandexGPT returned empty response")
+        
+        return True
+    except Exception as e:
+        print(f"❌ YandexGPT error: {e}")
+        return False
+
+
+async def test_openai():
+    """Test OpenAI connection"""
+    print("\n" + "=" * 50)
+    print("Testing OpenAI")
+    print("=" * 50)
+    
+    try:
+        from config import config
+        
+        if not config.openai.is_configured:
+            print(f"⚠️  OpenAI not configured (optional)")
+            return True
+        
+        from services.ai_service import ai_service, AIProvider
+        
+        result = await ai_service.generate(
+            prompt="Say 'Hello' in one word",
+            task="content_generate",
+            max_tokens=10,
+            provider=AIProvider.OPENAI
+        )
+        
+        if result:
+            print(f"✅ OpenAI working")
+            print(f"   Response: {result[:50]}...")
+        else:
+            print(f"⚠️  OpenAI returned empty response")
+        
+        return True
+    except Exception as e:
+        print(f"❌ OpenAI error: {e}")
+        return False
+
+
+async def test_onlinesim():
+    """Test OnlineSim connection"""
+    print("\n" + "=" * 50)
+    print("Testing OnlineSim")
+    print("=" * 50)
+    
+    try:
+        from config import config
+        
+        if not config.onlinesim.is_configured:
+            print(f"⚠️  OnlineSim not configured (optional)")
+            return True
+        
+        from services.onlinesim import onlinesim
+        
+        balance = await onlinesim.get_balance()
+        print(f"✅ OnlineSim connected")
+        print(f"   Balance: {balance}₽")
+        
+        if balance < 15:
+            print(f"   ⚠️  Low balance, min 15₽ for one number")
+        
+        return True
+    except Exception as e:
+        print(f"❌ OnlineSim error: {e}")
+        return False
+
+
 async def main():
     """Run all tests"""
     print("\n🔍 VPS Worker Connection Test\n")
@@ -184,6 +279,9 @@ async def main():
     results.append(("Supabase", await test_supabase()))
     results.append(("Telegram API", await test_telegram_api()))
     results.append(("Notifier", await test_notifier()))
+    results.append(("YandexGPT", await test_yandex_gpt()))
+    results.append(("OpenAI", await test_openai()))
+    results.append(("OnlineSim", await test_onlinesim()))
     
     # Summary
     print("\n" + "=" * 50)

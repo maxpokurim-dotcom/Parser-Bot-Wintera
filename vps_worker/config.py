@@ -49,6 +49,41 @@ class TelegramConfig:
 
 
 @dataclass
+class YandexGPTConfig:
+    """YandexGPT configuration"""
+    folder_id: str = field(default_factory=lambda: os.getenv('YANDEX_CLOUD_FOLDER_ID', ''))
+    api_key: str = field(default_factory=lambda: os.getenv('YANDEX_CLOUD_API_KEY', ''))
+    iam_token: str = field(default_factory=lambda: os.getenv('YANDEX_CLOUD_IAM_TOKEN', ''))
+    model: str = field(default_factory=lambda: os.getenv('YANDEX_GPT_MODEL', 'yandexgpt-lite'))
+    
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.folder_id and (self.api_key or self.iam_token))
+
+
+@dataclass
+class OpenAIConfig:
+    """OpenAI configuration"""
+    api_key: str = field(default_factory=lambda: os.getenv('OPENAI_API_KEY', ''))
+    model: str = field(default_factory=lambda: os.getenv('OPENAI_MODEL', 'gpt-4o-mini'))
+    
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.api_key)
+
+
+@dataclass
+class OnlineSimConfig:
+    """OnlineSim configuration"""
+    api_key: str = field(default_factory=lambda: os.getenv('ONLINESIM_API_KEY', ''))
+    default_country: str = field(default_factory=lambda: os.getenv('ONLINESIM_DEFAULT_COUNTRY', 'ru'))
+    
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.api_key)
+
+
+@dataclass
 class MailingConfig:
     """Mailing settings"""
     delay_min: int = field(default_factory=lambda: int(os.getenv('MAILING_DELAY_MIN', 30)))
@@ -101,15 +136,24 @@ class Config:
     warmup: WarmupConfig = field(default_factory=WarmupConfig)
     worker: WorkerConfig = field(default_factory=WorkerConfig)
     
-    # API keys
-    onlinesim_api_key: str = field(default_factory=lambda: os.getenv('ONLINESIM_API_KEY', ''))
-    openai_api_key: str = field(default_factory=lambda: os.getenv('OPENAI_API_KEY', ''))
+    # AI Services
+    yandex_gpt: YandexGPTConfig = field(default_factory=YandexGPTConfig)
+    openai: OpenAIConfig = field(default_factory=OpenAIConfig)
+    
+    # SMS Service
+    onlinesim: OnlineSimConfig = field(default_factory=OnlineSimConfig)
     
     # Proxy
     default_proxy: Optional[str] = field(default_factory=lambda: os.getenv('DEFAULT_PROXY') or None)
+    proxy_list: List[str] = field(default_factory=lambda: [p.strip() for p in os.getenv('PROXY_LIST', '').split(',') if p.strip()])
     
     # Security
     encryption_key: Optional[str] = field(default_factory=lambda: os.getenv('ENCRYPTION_KEY') or None)
+    
+    @property
+    def ai_available(self) -> bool:
+        """Check if any AI service is configured"""
+        return self.yandex_gpt.is_configured or self.openai.is_configured
 
 
 def get_config() -> Config:

@@ -241,7 +241,7 @@ class MailingWorker(BaseWorker):
             await notifier.notify_campaign_progress(campaign_id, sent, failed, total)
     
     def _personalize_message(self, text: str, recipient: dict) -> str:
-        """Personalize message with recipient data"""
+        """Personalize message with recipient data (sync version)"""
         replacements = {
             '{first_name}': recipient.get('first_name') or '',
             '{last_name}': recipient.get('last_name') or '',
@@ -253,3 +253,43 @@ class MailingWorker(BaseWorker):
             text = text.replace(placeholder, value)
         
         return text
+    
+    async def _personalize_message_ai(
+        self, 
+        text: str, 
+        recipient: dict,
+        use_ai: bool = False
+    ) -> str:
+        """
+        Personalize message with AI enhancement
+        
+        Args:
+            text: Message template
+            recipient: Recipient data
+            use_ai: Use AI for deeper personalization
+        
+        Returns:
+            Personalized message
+        """
+        # Basic placeholder replacement
+        result = self._personalize_message(text, recipient)
+        
+        # AI personalization if enabled and contains marker
+        if use_ai and ('{ai_personalize}' in text or '{ai}' in text):
+            try:
+                from services.ai_service import ai_service
+                
+                result = result.replace('{ai_personalize}', '').replace('{ai}', '')
+                
+                ai_result = await ai_service.personalize_message(
+                    template=result,
+                    recipient=recipient
+                )
+                
+                if ai_result:
+                    result = ai_result
+                    
+            except Exception as e:
+                self.logger.warning(f"AI personalization failed: {e}")
+        
+        return result

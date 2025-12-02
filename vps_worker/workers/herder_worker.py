@@ -257,25 +257,37 @@ class HerderWorker(BaseWorker):
         return False
     
     async def _generate_comment(self, post: dict, strategy: str, account: dict) -> Optional[str]:
-        """Generate comment based on strategy and post content"""
-        post_text = post.get('text', '')[:200]
+        """Generate comment based on strategy and post content using AI"""
+        from services.ai_service import ai_service
+        
+        post_text = post.get('text', '')[:500]
         
         # Get account profile for personalization
         profile = db.get_account_profile(account['id'])
         
-        # Simple comment templates based on strategy
+        # Try AI generation first
+        try:
+            ai_comment = await ai_service.generate_comment(
+                post_text=post_text,
+                strategy=strategy,
+                account_profile=profile
+            )
+            
+            if ai_comment and len(ai_comment) > 2:
+                self.logger.debug(f"AI generated comment: {ai_comment[:50]}...")
+                return ai_comment
+        except Exception as e:
+            self.logger.warning(f"AI comment generation failed: {e}")
+        
+        # Fallback to templates if AI unavailable
         if strategy == 'expert':
-            templates = [
-                "Интересная точка зрения! А как вы относитесь к {topic}?",
-                "Важная тема. По моему опыту, {opinion}",
-                "Хороший материал. Добавлю, что {addition}",
-            ]
-            # For now, use simple comments without AI
             comments = [
                 "Интересный материал, спасибо за информацию!",
                 "Полезно, сохранил себе 👍",
                 "Согласен с автором, важная тема",
-                "Хорошая подборка, как раз искал подобное"
+                "Хорошая подборка, как раз искал подобное",
+                "Отличный анализ, спасибо!",
+                "Важные мысли, есть над чем подумать",
             ]
         elif strategy == 'support':
             comments = [
@@ -285,7 +297,9 @@ class HerderWorker(BaseWorker):
                 "+1",
                 "Согласен!",
                 "Поддерживаю",
-                "🔥🔥🔥"
+                "🔥🔥🔥",
+                "Класс! 👏",
+                "Топ! 🚀",
             ]
         elif strategy == 'trendsetter':
             comments = [
@@ -293,14 +307,18 @@ class HerderWorker(BaseWorker):
                 "Новый пост, отлично!",
                 "Ждал этого!",
                 "Наконец-то!",
-                "🚀"
+                "🚀",
+                "Огонь! 🔥",
+                "Это то что нужно!",
             ]
-        else:
+        else:  # observer
             comments = [
                 "👍",
                 "Интересно",
                 "Спасибо",
-                "🙏"
+                "🙏",
+                "👀",
+                "📝",
             ]
         
         return random.choice(comments)

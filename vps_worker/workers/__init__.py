@@ -7,6 +7,7 @@ from .parsing_worker import ParsingWorker
 from .herder_worker import HerderWorker
 from .warmup_worker import WarmupWorker
 from .scheduler_worker import SchedulerWorker
+from .factory_worker import FactoryWorker
 
 __all__ = [
     'AuthWorker',
@@ -14,5 +15,6 @@ __all__ = [
     'ParsingWorker',
     'HerderWorker',
     'WarmupWorker',
-    'SchedulerWorker'
+    'SchedulerWorker',
+    'FactoryWorker'
 ]

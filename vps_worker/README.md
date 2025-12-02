@@ -92,12 +92,16 @@ sudo systemctl start vps-worker
 ## Конфигурация (.env)
 
 ```bash
-# Supabase (обязательно - та же БД что и у бота на Vercel)
+# ============================================
+# ОБЯЗАТЕЛЬНЫЕ НАСТРОЙКИ
+# ============================================
+
+# Supabase (та же БД что и у бота на Vercel)
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-anon-key
 SUPABASE_SERVICE_KEY=your-service-role-key
 
-# Telegram API (обязательно - получить на https://my.telegram.org)
+# Telegram API (получить на https://my.telegram.org)
 TELEGRAM_API_ID=12345678
 TELEGRAM_API_HASH=your-api-hash
 
@@ -105,11 +109,45 @@ TELEGRAM_API_HASH=your-api-hash
 BOT_TOKEN=123456789:AABBccDDeeFFggHH
 ADMIN_CHAT_ID=123456789
 
-# Опционально
-ONLINESIM_API_KEY=      # Для авто-создания аккаунтов
-OPENAI_API_KEY=         # Для генерации контента
-DEFAULT_PROXY=          # socks5://user:pass@host:port
+# ============================================
+# AI ГЕНЕРАЦИЯ (для контента и комментариев)
+# ============================================
+
+# YandexGPT (рекомендуется для русского языка)
+# Получить: https://console.cloud.yandex.ru/
+YANDEX_CLOUD_FOLDER_ID=your-folder-id
+YANDEX_CLOUD_API_KEY=your-api-key
+YANDEX_GPT_MODEL=yandexgpt-lite  # или yandexgpt, yandexgpt-32k
+
+# OpenAI (альтернатива/fallback)
+OPENAI_API_KEY=sk-your-key
+OPENAI_MODEL=gpt-4o-mini
+
+# ============================================
+# ОНЛАЙН-СИМ (авто-создание аккаунтов)
+# ============================================
+
+# Получить: https://onlinesim.io/
+ONLINESIM_API_KEY=your-key
+ONLINESIM_DEFAULT_COUNTRY=ru  # ru, ua, kz, by, pl, de...
+
+# ============================================
+# ПРОКСИ
+# ============================================
+
+DEFAULT_PROXY=socks5://user:pass@host:port
+# Несколько прокси через запятую для ротации:
+PROXY_LIST=socks5://proxy1:port,socks5://proxy2:port
 ```
+
+### Где получить API ключи
+
+| Сервис | Где получить | Для чего |
+|--------|--------------|----------|
+| **Telegram API** | [my.telegram.org](https://my.telegram.org) | Авторизация аккаунтов |
+| **YandexGPT** | [console.cloud.yandex.ru](https://console.cloud.yandex.ru/) | Генерация контента, комментариев |
+| **OpenAI** | [platform.openai.com](https://platform.openai.com/) | Альтернатива YandexGPT |
+| **OnlineSim** | [onlinesim.io](https://onlinesim.io/) | SMS для авто-создания аккаунтов |
 
 ## Управление сервисом
 
@@ -142,14 +180,17 @@ vps_worker/
 ├── services/              # Сервисы
 │   ├── database.py        # Работа с Supabase
 │   ├── notifier.py        # Уведомления админу
-│   └── telegram_client.py # Telethon клиент
+│   ├── telegram_client.py # Telethon клиент
+│   ├── ai_service.py      # YandexGPT + OpenAI
+│   └── onlinesim.py       # SMS сервис
 │
 ├── workers/               # Воркеры (фоновые задачи)
 │   ├── auth_worker.py     # Авторизация аккаунтов
 │   ├── mailing_worker.py  # Рассылка сообщений
 │   ├── parsing_worker.py  # Парсинг аудитории
-│   ├── herder_worker.py   # Ботовод
+│   ├── herder_worker.py   # Ботовод + AI комментарии
 │   ├── warmup_worker.py   # Прогрев аккаунтов
+│   ├── factory_worker.py  # Авто-создание через OnlineSim
 │   └── scheduler_worker.py # Планировщик
 │
 ├── utils/                 # Утилиты
