@@ -389,8 +389,12 @@ class TelegramActions:
         Uses Telethon's built-in get_participants which properly iterates
         through all participants, not just search results.
         
+        NOTE: For broadcast CHANNELS, only admins can see full subscriber list!
+        Regular users will only see channel admins (typically 1-5 people).
+        For channels, use comment parsing instead.
+        
         Returns:
-            dict with success, users list or error
+            dict with success, users list, channel_type or error
         """
         client = await self.manager.get_client(account_id, phone)
         if not client:
@@ -399,13 +403,30 @@ class TelegramActions:
         try:
             channel_entity = await client.get_entity(channel)
             
+            # Detect channel type
+            is_broadcast = False
+            is_megagroup = False
+            channel_type = 'unknown'
+            
+            if hasattr(channel_entity, 'broadcast'):
+                is_broadcast = channel_entity.broadcast
+            if hasattr(channel_entity, 'megagroup'):
+                is_megagroup = channel_entity.megagroup
+            
+            if is_broadcast and not is_megagroup:
+                channel_type = 'channel'  # Broadcast channel - subscribers hidden
+                logger.warning(f"{channel} is a BROADCAST CHANNEL. Only admins visible without admin rights. Use comment parsing instead!")
+            elif is_megagroup:
+                channel_type = 'supergroup'  # Supergroup - members visible
+            else:
+                channel_type = 'group'  # Regular group
+            
             # Use Telethon's built-in method which handles pagination properly
             # aggressive=True uses multiple API calls with different filters
-            # to get ALL participants, not just search results
             participants = await client.get_participants(
                 channel_entity,
                 limit=limit,
-                aggressive=True  # Important: gets all users, not just search results
+                aggressive=True
             )
             
             users = []
@@ -425,10 +446,15 @@ class TelegramActions:
             # Get total count
             total = participants.total if hasattr(participants, 'total') else len(users)
             
+            # Warning if broadcast channel returns few users
+            if channel_type == 'channel' and len(users) < 10:
+                logger.warning(f"Only {len(users)} users from broadcast channel {channel}. This is normal - only admins are visible. Use COMMENT parsing for this channel!")
+            
             return {
                 'success': True,
                 'users': users,
-                'total': total
+                'total': total,
+                'channel_type': channel_type
             }
             
         except errors.FloodWaitError as e:

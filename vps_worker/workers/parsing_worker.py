@@ -120,7 +120,16 @@ class ParsingWorker(BaseWorker):
         users = result['users']
         total_count = result.get('total', len(users))
         
-        self.logger.info(f"Got {len(users)} users from {channel} (total in channel: {total_count})")
+        channel_type = result.get('channel_type', 'unknown')
+        self.logger.info(f"Got {len(users)} users from {channel} (type: {channel_type}, total: {total_count})")
+        
+        # Warning for broadcast channels
+        if channel_type == 'channel' and len(users) < 20:
+            self.logger.warning(
+                f"⚠️ {channel} is a BROADCAST CHANNEL! "
+                f"Only admins visible ({len(users)} users). "
+                f"For subscribers, use COMMENT parsing (source_type='comments')."
+            )
         
         # Apply filters
         filtered_users = []
