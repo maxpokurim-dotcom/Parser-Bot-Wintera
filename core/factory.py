@@ -362,39 +362,35 @@ def _handle_manual_role(chat_id: int, user_id: int, text: str, saved: dict) -> b
         import random
         role = random.choice(['observer', 'expert', 'support', 'trendsetter'])
     saved['role'] = role
-    # Create account record
-    account = DB.create_account(
-        user_id=user_id,
-        phone=saved['phone'],
-        role=role,
-        source='manual'
-    )
-    if account:
-        # Update auth task with account_id
-        task_id = saved.get('task_id')
-        if task_id:
-            DB.update_auth_task(task_id, account_id=account['id'])
+    
+    # Аккаунт уже создан при вводе телефона, обновляем роль
+    account_id = saved.get('account_id')
+    if account_id:
+        # Обновляем роль существующего аккаунта
+        DB.update_account(account_id, role=role)
+        
         # Create default profile
-        DB.create_account_profile(account['id'], {
+        DB.create_account_profile(account_id, {
             'persona': 'Пользователь Telegram',
             'role': role,
             'interests': ['общение', 'новости'],
             'speech_style': 'informal',
             'preferred_reactions': ['👍', '❤️']
         })
+        
         role_name = {'observer': 'Наблюдатель', 'expert': 'Эксперт', 
                      'support': 'Поддержка', 'trendsetter': 'Трендсеттер'}.get(role, role)
         send_message(chat_id,
             f"✅ <b>Аккаунт добавлен!</b>\n"
             f"📱 Телефон: <code>{saved['phone'][:4]}***{saved['phone'][-2:]}</code>\n"
             f"🎭 Роль: {role_name}\n"
-            f"📊 Статус: ⏳ Ожидает авторизации\n"
-            f"Авторизация выполняется в фоновом режиме.\n"
+            f"📊 Статус: Авторизация в процессе\n\n"
             f"Вы получите уведомление о результате.",
             kb_factory_menu()
         )
     else:
-        send_message(chat_id, "❌ Ошибка создания аккаунта", kb_factory_menu())
+        send_message(chat_id, "❌ Ошибка: аккаунт не найден", kb_factory_menu())
+    
     DB.set_user_state(user_id, 'factory:menu')
     return True
 # ==================== AUTO CREATION ====================
