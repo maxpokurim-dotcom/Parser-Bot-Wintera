@@ -1,5 +1,5 @@
 """
-Main menu and navigation handler - Restructured v1.0
+Main menu and navigation handler - Restructured v2.0
 Simplified into 4 logical sections:
 1. 📥 Исходящие действия (Parsing, Mailing, Content)
 2. 🤖 Управление аккаунтами (Accounts, Factory, Herder)
@@ -9,7 +9,7 @@ Simplified into 4 logical sections:
 import logging
 from core.db import DB
 from core.telegram import send_message
-from core.keyboards import kb_main_menu, kb_outbound_menu, kb_accounts_menu, kb_analytics_menu
+from core.keyboards import kb_main_menu
 logger = logging.getLogger(__name__)
 
 # Button text constants for matching
