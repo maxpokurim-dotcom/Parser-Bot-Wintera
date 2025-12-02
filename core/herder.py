@@ -23,8 +23,7 @@ logger = logging.getLogger(__name__)
 BTN_NEW_ASSIGNMENT = '➕ Новое задание'
 BTN_MY_ASSIGNMENTS = '📋 Мои задания'
 BTN_HERDER_STATS = '📊 Статистика'
-BTN_HERDER_ACCOUNTS = '👥 Аккаунты'
-BTN_HERDER_PROFILES = '🧠 Профили ИИ'
+BTN_HERDER_PROFILES = '🧠 Профили аккаунтов'
 BTN_HERDER_STRATEGIES = '🎯 Стратегии'
 BTN_HERDER_SETTINGS = '⚙️ Настройки'
 
@@ -179,7 +178,7 @@ def _handle_menu(chat_id: int, user_id: int, text: str) -> bool:
     if text == BTN_HERDER_STATS:
         show_herder_stats(chat_id, user_id)
         return True
-    if text == BTN_HERDER_ACCOUNTS or text == BTN_HERDER_PROFILES:
+    if text == BTN_HERDER_PROFILES:
         show_profiles_menu(chat_id, user_id)
         return True
     if text == BTN_HERDER_STRATEGIES:

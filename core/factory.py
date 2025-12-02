@@ -18,17 +18,55 @@ from core.keyboards import (
     kb_factory_menu, kb_factory_auto_count, kb_factory_country,
     kb_factory_warmup_days, kb_factory_task_actions, kb_warmup_menu,
     kb_account_role, kb_inline_factory_tasks, kb_inline_warmup_accounts,
-    reply_keyboard, inline_keyboard
+    kb_skip, reply_keyboard, inline_keyboard
 )
+
+# Use kb_skip as the 2FA skip keyboard
+kb_skip_2fa = kb_skip
 from core.menu import show_main_menu, BTN_CANCEL, BTN_BACK, BTN_MAIN_MENU
 logger = logging.getLogger(__name__)
 # Button constants
 BTN_ADD_MANUAL = '➕ Добавить вручную'
 BTN_AUTO_CREATE = '🤖 Авто-создание'
+BTN_WARM_ACCOUNTS = '🌡 Тёплые аккаунты'
 BTN_WARMUP = '🔥 Прогрев аккаунтов'
 BTN_QUEUE = '📋 Очередь создания'
 BTN_STATUS = '📊 Статус'
 BTN_FACTORY_SETTINGS = '⚙️ Настройки фабрики'
+
+# Profile types for warm accounts
+PROFILE_TYPES = {
+    'expert': {
+        'name': '🧠 Эксперт',
+        'description': 'Профессионал в своей области, даёт экспертные советы',
+        'interests': ['бизнес', 'маркетинг', 'технологии'],
+        'speech_style': 'professional'
+    },
+    'reader': {
+        'name': '📖 Читатель',
+        'description': 'Активный подписчик, интересуется контентом',
+        'interests': ['новости', 'развлечения', 'образование'],
+        'speech_style': 'informal'
+    },
+    'critic': {
+        'name': '🎯 Критик',
+        'description': 'Вдумчивый аналитик, задаёт вопросы',
+        'interests': ['аналитика', 'факты', 'дискуссии'],
+        'speech_style': 'analytical'
+    },
+    'supporter': {
+        'name': '💪 Поддержка',
+        'description': 'Позитивный участник, поддерживает контент',
+        'interests': ['общение', 'позитив', 'сообщество'],
+        'speech_style': 'friendly'
+    },
+    'trendsetter': {
+        'name': '🔥 Трендсеттер',
+        'description': 'Следит за трендами, первым реагирует',
+        'interests': ['тренды', 'мемы', 'хайп'],
+        'speech_style': 'trendy'
+    }
+}
 # Country codes for OnlineSim
 COUNTRIES = {
     '🇷🇺 Россия': {'code': 'ru', 'price': '~15₽'},
@@ -128,6 +166,21 @@ def handle_factory(chat_id: int, user_id: int, text: str, state: str, saved: dic
         return _handle_factory_settings(chat_id, user_id, text, saved)
     if state.startswith('factory:settings:'):
         return _handle_factory_settings_item(chat_id, user_id, text, state, saved)
+    
+    # Warm accounts flow
+    if state == 'factory:warm:menu':
+        return _handle_warm_accounts_menu(chat_id, user_id, text, saved)
+    if state == 'factory:warm:phone':
+        return _handle_warm_phone(chat_id, user_id, text, saved)
+    if state == 'factory:warm:code':
+        return _handle_warm_code(chat_id, user_id, text, saved)
+    if state == 'factory:warm:2fa':
+        return _handle_warm_2fa(chat_id, user_id, text, saved)
+    if state == 'factory:warm:profile':
+        return _handle_warm_profile(chat_id, user_id, text, saved)
+    if state == 'factory:warm:confirm':
+        return _handle_warm_confirm(chat_id, user_id, text, saved)
+    
     return False
 def _handle_back(chat_id: int, user_id: int, state: str, saved: dict):
     """Handle back navigation"""
@@ -137,6 +190,33 @@ def _handle_back(chat_id: int, user_id: int, state: str, saved: dict):
         show_factory_menu(chat_id, user_id)
     elif state.startswith('factory:task:') or state.startswith('factory:warmup'):
         show_factory_menu(chat_id, user_id)
+    # Warm accounts back navigation
+    elif state == 'factory:warm:menu':
+        show_factory_menu(chat_id, user_id)
+    elif state == 'factory:warm:phone':
+        show_warm_accounts_menu(chat_id, user_id)
+    elif state == 'factory:warm:code':
+        # Go back to phone entry, restart
+        start_warm_account_creation(chat_id, user_id)
+    elif state == 'factory:warm:2fa':
+        DB.set_user_state(user_id, 'factory:warm:code', saved)
+        send_message(chat_id, "⬅️ Введите код повторно:", kb_back_cancel())
+    elif state == 'factory:warm:profile':
+        DB.set_user_state(user_id, 'factory:warm:2fa', saved)
+        send_message(chat_id, "⬅️ Введите 2FA пароль или пропустите:", kb_skip_2fa())
+    elif state == 'factory:warm:confirm':
+        DB.set_user_state(user_id, 'factory:warm:profile', saved)
+        # Re-show profile selection
+        text = f"<b>Шаг 4/5:</b> Выберите тип профиля\n\n"
+        for key, data in PROFILE_TYPES.items():
+            text += f"{data['name']}\n<i>{data['description']}</i>\n\n"
+        send_message(chat_id, text, reply_keyboard([
+            ['🧠 Эксперт', '📖 Читатель'],
+            ['🎯 Критик', '💪 Поддержка'],
+            ['🔥 Трендсеттер'],
+            ['🎲 Случайный'],
+            ['◀️ Назад', '❌ Отмена']
+        ]))
     else:
         show_factory_menu(chat_id, user_id)
 def _handle_menu(chat_id: int, user_id: int, text: str) -> bool:
@@ -146,6 +226,9 @@ def _handle_menu(chat_id: int, user_id: int, text: str) -> bool:
         return True
     if text == BTN_AUTO_CREATE or text == '🤖 Авто-создание':
         start_auto_creation(chat_id, user_id)
+        return True
+    if text == BTN_WARM_ACCOUNTS or text == '🌡 Тёплые аккаунты':
+        show_warm_accounts_menu(chat_id, user_id)
         return True
     if text == BTN_WARMUP or text == '🔥 Прогрев аккаунтов':
         show_warmup_menu(chat_id, user_id)
@@ -798,6 +881,396 @@ def _handle_factory_settings_item(chat_id: int, user_id: int, text: str, state: 
         show_factory_settings(chat_id, user_id)
         return True
     return False
+# ==================== WARM ACCOUNTS ====================
+
+def show_warm_accounts_menu(chat_id: int, user_id: int):
+    """Show warm accounts menu"""
+    DB.set_user_state(user_id, 'factory:warm:menu')
+    
+    # Get warm accounts folder stats
+    warm_folder = DB.get_account_folder_by_name(user_id, 'Тёплые аккаунты')
+    warm_count = 0
+    if warm_folder:
+        warm_accounts = DB.get_accounts_in_folder(warm_folder['id'])
+        warm_count = len(warm_accounts)
+    
+    # Get accounts in warmup process
+    pending_warm = DB.get_accounts_by_warmup_type(user_id, 'warm_account')
+    
+    send_message(chat_id,
+        f"🌡 <b>Тёплые аккаунты</b>\n\n"
+        f"<i>Создание аккаунтов с ИИ-профилем\n"
+        f"и автоматическим 2-дневным прогревом.</i>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>📊 СТАТИСТИКА</b>\n"
+        f"├ Готовых тёплых: <b>{warm_count}</b>\n"
+        f"└ На прогреве: <b>{len(pending_warm)}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>Процесс создания:</b>\n"
+        f"1️⃣ Вы вводите номер телефона\n"
+        f"2️⃣ Авторизация в Telegram\n"
+        f"3️⃣ Выбор типа профиля (эксперт, читатель...)\n"
+        f"4️⃣ YaGPT генерирует имя, био, интересы\n"
+        f"5️⃣ 2-дневный прогрев аккаунта\n"
+        f"6️⃣ Аккаунт готов к работе!\n\n"
+        f"💡 <i>Тёплые аккаунты безопаснее для рассылок</i>",
+        reply_keyboard([
+            ['➕ Создать тёплый аккаунт'],
+            ['📋 Список тёплых', '📊 В прогреве'],
+            ['◀️ Назад']
+        ])
+    )
+
+
+def _handle_warm_accounts_menu(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle warm accounts menu"""
+    if text == '➕ Создать тёплый аккаунт':
+        start_warm_account_creation(chat_id, user_id)
+        return True
+    
+    if text == '📋 Список тёплых':
+        show_warm_accounts_list(chat_id, user_id)
+        return True
+    
+    if text == '📊 В прогреве':
+        show_warming_accounts(chat_id, user_id)
+        return True
+    
+    return False
+
+
+def start_warm_account_creation(chat_id: int, user_id: int):
+    """Start warm account creation flow"""
+    # Check YaGPT API key
+    settings = DB.get_user_settings(user_id)
+    if not settings.get('yagpt_api_key'):
+        send_message(chat_id,
+            "❌ <b>Yandex GPT не настроен</b>\n\n"
+            "Для генерации профиля нужен API ключ.\n"
+            "Настройте его в разделе:\n"
+            "⚙️ Настройки → 🔑 API ключи → Yandex GPT",
+            kb_factory_menu()
+        )
+        return
+    
+    DB.set_user_state(user_id, 'factory:warm:phone', {})
+    
+    send_message(chat_id,
+        "🌡 <b>Создание тёплого аккаунта</b>\n\n"
+        "<b>Шаг 1/5:</b> Введите номер телефона\n\n"
+        "Формат: <code>+79001234567</code>\n\n"
+        "⚠️ На этот номер придёт код подтверждения от Telegram",
+        kb_back_cancel()
+    )
+
+
+def _handle_warm_phone(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle phone input for warm account"""
+    phone = re.sub(r'[\s\-\(\)]', '', text)
+    
+    if not re.match(r'^\+[1-9]\d{10,14}$', phone):
+        send_message(chat_id,
+            "❌ Неверный формат номера\n"
+            "Введите в международном формате:\n"
+            "<code>+79001234567</code>",
+            kb_back_cancel()
+        )
+        return True
+    
+    # Check if already exists
+    if DB.check_account_exists(user_id, phone):
+        send_message(chat_id,
+            "❌ Этот номер уже добавлен\n"
+            "Введите другой номер:",
+            kb_back_cancel()
+        )
+        return True
+    
+    # Create auth task
+    task = DB.create_auth_task(user_id, phone, task_type='warm_account')
+    if not task:
+        send_message(chat_id, "❌ Ошибка создания задачи", kb_factory_menu())
+        return True
+    
+    saved['task_id'] = task['id']
+    saved['phone'] = phone
+    saved['is_warm_account'] = True
+    
+    DB.set_user_state(user_id, 'factory:warm:code', saved)
+    
+    masked = f"{phone[:4]}***{phone[-2:]}"
+    send_message(chat_id,
+        f"📱 <b>Номер принят</b>\n"
+        f"Телефон: <code>{masked}</code>\n\n"
+        f"<b>Шаг 2/5:</b> Ожидание кода\n\n"
+        f"⏳ Запрос на авторизацию отправлен.\n"
+        f"Введите код из SMS или Telegram:",
+        kb_back_cancel()
+    )
+    return True
+
+
+def _handle_warm_code(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle code input for warm account"""
+    code = text.strip().replace(' ', '').replace('-', '')
+    
+    if not (code.isdigit() and 4 <= len(code) <= 6):
+        send_message(chat_id,
+            "❌ Код должен содержать 4-6 цифр\n"
+            "Введите код из SMS:",
+            kb_back_cancel()
+        )
+        return True
+    
+    task_id = saved.get('task_id')
+    if task_id:
+        DB.update_auth_task(task_id, code=code, status='code_received')
+    
+    saved['code'] = code
+    DB.set_user_state(user_id, 'factory:warm:2fa', saved)
+    
+    send_message(chat_id,
+        f"✅ <b>Код принят</b>\n\n"
+        f"<b>Шаг 3/5:</b> Двухфакторная аутентификация\n\n"
+        f"Если на аккаунте установлен пароль 2FA, введите его.\n"
+        f"Если нет — нажмите «⏭ Пропустить»",
+        kb_skip_2fa()
+    )
+    return True
+
+
+def _handle_warm_2fa(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle 2FA for warm account"""
+    if text == '⏭ Пропустить':
+        saved['password'] = None
+    else:
+        saved['password'] = text.strip()
+        task_id = saved.get('task_id')
+        if task_id:
+            DB.update_auth_task(task_id, password=saved['password'])
+    
+    DB.set_user_state(user_id, 'factory:warm:profile', saved)
+    
+    # Show profile types
+    text = f"<b>Шаг 4/5:</b> Выберите тип профиля\n\n"
+    text += "Yandex GPT сгенерирует персону на основе выбора:\n\n"
+    
+    for key, data in PROFILE_TYPES.items():
+        text += f"{data['name']}\n"
+        text += f"<i>{data['description']}</i>\n\n"
+    
+    send_message(chat_id, text, reply_keyboard([
+        ['🧠 Эксперт', '📖 Читатель'],
+        ['🎯 Критик', '💪 Поддержка'],
+        ['🔥 Трендсеттер'],
+        ['🎲 Случайный'],
+        ['◀️ Назад', '❌ Отмена']
+    ]))
+    return True
+
+
+def _handle_warm_profile(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle profile type selection"""
+    profile_map = {
+        '🧠 Эксперт': 'expert',
+        '📖 Читатель': 'reader',
+        '🎯 Критик': 'critic',
+        '💪 Поддержка': 'supporter',
+        '🔥 Трендсеттер': 'trendsetter',
+        '🎲 Случайный': 'random'
+    }
+    
+    profile_type = profile_map.get(text)
+    if not profile_type:
+        send_message(chat_id, "❌ Выберите тип профиля из списка", kb_back_cancel())
+        return True
+    
+    if profile_type == 'random':
+        import random
+        profile_type = random.choice(list(PROFILE_TYPES.keys()))
+    
+    saved['profile_type'] = profile_type
+    saved['profile_data'] = PROFILE_TYPES[profile_type]
+    
+    DB.set_user_state(user_id, 'factory:warm:confirm', saved)
+    
+    # Show confirmation
+    profile = PROFILE_TYPES[profile_type]
+    masked = f"{saved['phone'][:4]}***{saved['phone'][-2:]}"
+    
+    send_message(chat_id,
+        f"📋 <b>Подтверждение создания</b>\n\n"
+        f"📱 Телефон: <code>{masked}</code>\n"
+        f"🎭 Профиль: <b>{profile['name']}</b>\n"
+        f"<i>{profile['description']}</i>\n\n"
+        f"<b>Что произойдёт после подтверждения:</b>\n"
+        f"1️⃣ Аккаунт авторизуется\n"
+        f"2️⃣ YaGPT сгенерирует имя, био, интересы\n"
+        f"3️⃣ Профиль применится к аккаунту\n"
+        f"4️⃣ Запустится 2-дневный прогрев\n"
+        f"5️⃣ После прогрева → папка «Тёплые аккаунты»\n\n"
+        f"⏱ <i>Весь процесс занимает ~2 дня</i>",
+        reply_keyboard([
+            ['✅ Подтвердить'],
+            ['◀️ Назад', '❌ Отмена']
+        ])
+    )
+    return True
+
+
+def _handle_warm_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle warm account confirmation"""
+    if text == '✅ Подтвердить':
+        # Create the account
+        account = DB.create_account(
+            user_id=user_id,
+            phone=saved['phone'],
+            role=saved['profile_type'],
+            source='warm_factory'
+        )
+        
+        if not account:
+            send_message(chat_id, "❌ Ошибка создания аккаунта", kb_factory_menu())
+            return True
+        
+        # Update auth task with account_id
+        task_id = saved.get('task_id')
+        if task_id:
+            DB.update_auth_task(task_id, account_id=account['id'])
+        
+        # Create the VPS task for YaGPT profile generation
+        profile_data = saved.get('profile_data', PROFILE_TYPES.get(saved['profile_type'], {}))
+        
+        vps_task = {
+            'task_type': 'warm_account_create',
+            'account_id': account['id'],
+            'phone': saved['phone'],
+            'profile_type': saved['profile_type'],
+            'profile_params': {
+                'generate_name': True,
+                'generate_bio': True,
+                'generate_interests': True,
+                'persona_style': saved['profile_type'],
+                'language': 'ru',
+                'base_interests': profile_data.get('interests', []),
+                'speech_style': profile_data.get('speech_style', 'informal')
+            },
+            'warmup': {
+                'enabled': True,
+                'duration_days': 2,
+                'actions_per_day': [5, 10, 15],
+                'target_folder': 'Тёплые аккаунты'
+            }
+        }
+        
+        # Save the VPS task
+        DB.create_vps_task(user_id, 'warm_account', vps_task)
+        
+        # Create or get the warm accounts folder
+        warm_folder = DB.get_account_folder_by_name(user_id, 'Тёплые аккаунты')
+        if not warm_folder:
+            warm_folder = DB.create_account_folder(user_id, 'Тёплые аккаунты')
+        
+        # Mark account for warmup
+        DB.update_account(account['id'], 
+            warmup_status='pending_warm',
+            warmup_type='warm_account',
+            target_folder_id=warm_folder['id'] if warm_folder else None
+        )
+        
+        # Create initial warmup progress
+        DB.create_warmup_progress(account['id'], days=2, warmup_type='warm_account')
+        
+        profile = PROFILE_TYPES.get(saved['profile_type'], {})
+        
+        send_message(chat_id,
+            f"✅ <b>Тёплый аккаунт создан!</b>\n\n"
+            f"📱 Телефон: <code>{saved['phone'][:4]}***{saved['phone'][-2:]}</code>\n"
+            f"🎭 Профиль: <b>{profile.get('name', saved['profile_type'])}</b>\n\n"
+            f"<b>Статус:</b> ⏳ Ожидает авторизации\n\n"
+            f"<b>Следующие шаги:</b>\n"
+            f"1️⃣ VPS авторизует аккаунт\n"
+            f"2️⃣ YaGPT сгенерирует профиль\n"
+            f"3️⃣ 2-дневный прогрев\n"
+            f"4️⃣ Уведомление о готовности\n\n"
+            f"💡 <i>Следите за статусом в разделе «📊 В прогреве»</i>",
+            kb_factory_menu()
+        )
+        
+        DB.set_user_state(user_id, 'factory:menu')
+        return True
+    
+    return False
+
+
+def show_warm_accounts_list(chat_id: int, user_id: int):
+    """Show list of ready warm accounts"""
+    warm_folder = DB.get_account_folder_by_name(user_id, 'Тёплые аккаунты')
+    
+    if not warm_folder:
+        send_message(chat_id,
+            "📋 <b>Тёплые аккаунты</b>\n\n"
+            "Папка пуста. Создайте тёплый аккаунт.",
+            kb_factory_menu()
+        )
+        return
+    
+    accounts = DB.get_accounts_in_folder(warm_folder['id'])
+    
+    if not accounts:
+        send_message(chat_id,
+            "📋 <b>Тёплые аккаунты</b>\n\n"
+            "Нет готовых тёплых аккаунтов.\n"
+            "Создайте новый через «➕ Создать тёплый аккаунт»",
+            kb_factory_menu()
+        )
+        return
+    
+    text = f"📋 <b>Тёплые аккаунты ({len(accounts)}):</b>\n\n"
+    
+    for acc in accounts[:15]:
+        phone = acc['phone']
+        masked = f"{phone[:4]}**{phone[-2:]}" if len(phone) > 6 else phone
+        
+        status_emoji = {'active': '✅', 'paused': '⏸', 'error': '❌'}.get(acc.get('status'), '❓')
+        role = acc.get('role', 'unknown')
+        role_name = PROFILE_TYPES.get(role, {}).get('name', role)
+        
+        text += f"{status_emoji} <code>{masked}</code> | {role_name}\n"
+    
+    send_message(chat_id, text, kb_factory_menu())
+
+
+def show_warming_accounts(chat_id: int, user_id: int):
+    """Show accounts currently in warm process"""
+    accounts = DB.get_accounts_by_warmup_type(user_id, 'warm_account')
+    
+    if not accounts:
+        send_message(chat_id,
+            "📊 <b>В прогреве</b>\n\n"
+            "Нет аккаунтов на прогреве.",
+            kb_factory_menu()
+        )
+        return
+    
+    text = f"📊 <b>Аккаунты на прогреве ({len(accounts)}):</b>\n\n"
+    
+    for acc in accounts[:15]:
+        phone = acc['phone']
+        masked = f"{phone[:4]}**{phone[-2:]}" if len(phone) > 6 else phone
+        
+        progress = DB.get_warmup_progress(acc['id'])
+        if progress:
+            day = progress.get('current_day', 1)
+            total = progress.get('total_days', 2)
+            bar = '█' * day + '░' * (total - day)
+            text += f"🔄 <code>{masked}</code> [{bar}] день {day}/{total}\n"
+        else:
+            text += f"⏳ <code>{masked}</code> — ожидает\n"
+    
+    send_message(chat_id, text, kb_factory_menu())
+
+
 # ==================== CALLBACKS ====================
 def handle_factory_callback(chat_id: int, msg_id: int, user_id: int, data: str) -> bool:
     """Handle factory inline callbacks"""
