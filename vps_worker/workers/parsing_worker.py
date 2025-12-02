@@ -29,10 +29,10 @@ class ParsingWorker(BaseWorker):
         
         for task in tasks:
             task_id = task['id']
-            user_id = task['user_id']
+            user_id = task.get('owner_id') or task.get('user_id')
             
             # Check if system is paused
-            if db.is_system_paused(user_id):
+            if user_id and db.is_system_paused(user_id):
                 continue
             
             try:
@@ -46,9 +46,9 @@ class ParsingWorker(BaseWorker):
         task_id = task['id']
         task_type = task.get('task_type', 'chat')  # chat or comments
         source_link = task['source_link']
-        source_id = task.get('source_id')
+        source_id = task.get('source_id') or task['id']  # Use task id as source_id if not set
         account_id = task.get('account_id')
-        user_id = task['user_id']
+        user_id = task.get('owner_id') or task.get('user_id')
         
         # Get account for parsing
         if not account_id:
@@ -88,7 +88,6 @@ class ParsingWorker(BaseWorker):
         source_id = task.get('source_id')
         phone = account['phone']
         account_id = account['id']
-        batch_size = config.parsing.batch_size
         
         # Get parsing filters from task
         filters = task.get('filters', {})
@@ -97,81 +96,61 @@ class ParsingWorker(BaseWorker):
         exclude_bots = filters.get('exclude_bots', True)
         limit = task.get('limit', 0)  # 0 = no limit
         
-        total_parsed = 0
-        offset = 0
+        # Default limit if not set (prevent massive parsing)
+        parse_limit = limit if limit > 0 else 10000
         
-        while True:
-            result = await telegram_actions.get_channel_participants(
-                account_id,
-                phone,
-                channel,
-                limit=batch_size,
-                offset=offset
-            )
+        self.logger.info(f"Parsing up to {parse_limit} users from {channel}")
+        
+        # Get all participants at once (Telethon handles pagination with aggressive=True)
+        result = await telegram_actions.get_channel_participants(
+            account_id,
+            phone,
+            channel,
+            limit=parse_limit
+        )
+        
+        if not result['success']:
+            if result['error'] == 'flood_wait':
+                wait_seconds = result.get('seconds', 60)
+                self.logger.warning(f"FloodWait in parsing: {wait_seconds}s")
+                db.set_account_flood_wait(account_id, wait_seconds)
+            db.update_parsing_task(task_id, status='error', error=result['error'])
+            return
+        
+        users = result['users']
+        total_count = result.get('total', len(users))
+        
+        self.logger.info(f"Got {len(users)} users from {channel} (total in channel: {total_count})")
+        
+        # Apply filters
+        filtered_users = []
+        for user in users:
+            # Exclude bots filter
+            if exclude_bots and user.get('is_bot'):
+                continue
             
-            if not result['success']:
-                if result['error'] == 'flood_wait':
-                    # Wait and retry
-                    wait_seconds = result.get('seconds', 60)
-                    self.logger.warning(f"FloodWait in parsing: {wait_seconds}s")
-                    db.set_account_flood_wait(account_id, wait_seconds)
-                    await asyncio.sleep(wait_seconds)
-                    continue
-                else:
-                    db.update_parsing_task(task_id, status='error', error=result['error'])
-                    return
+            # Only with username filter
+            if only_with_username and not user.get('username'):
+                continue
             
-            users = result['users']
-            if not users:
-                break
+            # Only with photo filter
+            if only_with_photo and not user.get('has_photo', True):
+                continue
             
-            # Apply filters
-            filtered_users = []
-            for user in users:
-                # Exclude bots filter
-                if exclude_bots and user.get('is_bot'):
-                    continue
-                
-                # Only with username filter
-                if only_with_username and not user.get('username'):
-                    continue
-                
-                # Only with photo filter (check has_photo if present)
-                if only_with_photo and not user.get('has_photo', True):
-                    continue
-                
-                filtered_users.append(user)
-            
-            # Save filtered users to database
-            if source_id and filtered_users:
-                added = db.add_audience_users(source_id, filtered_users)
-                total_parsed += added
-            else:
-                total_parsed += len(filtered_users)
+            filtered_users.append(user)
             
             # Check limit
-            if limit > 0 and total_parsed >= limit:
-                self.logger.info(f"Reached parsing limit: {limit}")
+            if limit > 0 and len(filtered_users) >= limit:
                 break
-            
-            # Update progress
-            total_count = result.get('total', 0)
-            db.update_parsing_task(
-                task_id,
-                parsed_count=total_parsed,
-                total_count=total_count
-            )
-            
-            self.logger.info(f"Parsed {total_parsed} (filtered) from {channel}")
-            
-            # Check if done
-            if len(users) < batch_size:
-                break
-            
-            offset += batch_size
-            
-            # Delay between batches
-            await asyncio.sleep(config.parsing.delay)
+        
+        self.logger.info(f"After filters: {len(filtered_users)} users")
+        
+        # Save filtered users to database
+        total_parsed = 0
+        if source_id and filtered_users:
+            total_parsed = db.add_audience_users(source_id, filtered_users)
+        else:
+            total_parsed = len(filtered_users)
         
         # Complete
         db.update_parsing_task(task_id, status='completed', parsed_count=total_parsed)
@@ -180,7 +159,7 @@ class ParsingWorker(BaseWorker):
             db.update_audience_source(source_id, status='completed', total_count=total_parsed)
         
         await notifier.notify_parsing_completed(source_id or task_id, total_parsed, channel)
-        self.logger.info(f"Parsing completed: {total_parsed} users from {channel}")
+        self.logger.info(f"Parsed {total_parsed} from {channel}")
     
     async def _parse_comments(self, task: dict, account: dict, channel: str):
         """Parse users from post comments"""

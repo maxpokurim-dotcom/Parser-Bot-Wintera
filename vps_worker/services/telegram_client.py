@@ -386,6 +386,9 @@ class TelegramActions:
         """
         Get channel participants for parsing
         
+        Uses Telethon's built-in get_participants which properly iterates
+        through all participants, not just search results.
+        
         Returns:
             dict with success, users list or error
         """
@@ -394,25 +397,23 @@ class TelegramActions:
             return {'success': False, 'error': 'Client not available', 'users': []}
         
         try:
-            from telethon.tl.functions.channels import GetParticipantsRequest
-            from telethon.tl.types import ChannelParticipantsSearch
-            
             channel_entity = await client.get_entity(channel)
             
-            participants = await client(GetParticipantsRequest(
+            # Use Telethon's built-in method which handles pagination properly
+            # aggressive=True uses multiple API calls with different filters
+            # to get ALL participants, not just search results
+            participants = await client.get_participants(
                 channel_entity,
-                ChannelParticipantsSearch(''),
-                offset=offset,
                 limit=limit,
-                hash=0
-            ))
+                aggressive=True  # Important: gets all users, not just search results
+            )
             
             users = []
-            for user in participants.users:
-                if not user.deleted:  # Allow bots, filter later
+            for user in participants:
+                if not user.deleted:
                     users.append({
                         'telegram_id': user.id,
-                        'tg_user_id': user.id,  # Alias for compatibility
+                        'tg_user_id': user.id,
                         'username': user.username,
                         'first_name': user.first_name,
                         'last_name': user.last_name,
@@ -421,10 +422,13 @@ class TelegramActions:
                         'has_photo': user.photo is not None
                     })
             
+            # Get total count
+            total = participants.total if hasattr(participants, 'total') else len(users)
+            
             return {
                 'success': True,
                 'users': users,
-                'total': participants.count
+                'total': total
             }
             
         except errors.FloodWaitError as e:
