@@ -1268,13 +1268,17 @@ class DB:
     # ==================== ПРОГРЕВ АККАУНТОВ ====================
 
     @classmethod
-    def create_warmup_progress(cls, account_id: int, total_days: int = 5) -> Optional[Dict]:
+    def create_warmup_progress(cls, account_id: int, total_days: int = 5, 
+                               days: int = None, warmup_type: str = 'standard') -> Optional[Dict]:
+        # Поддержка обоих параметров: total_days и days
+        actual_days = days if days is not None else total_days
         return cls._insert('warmup_progress', {
             'account_id': account_id,
-            'total_days': total_days,
+            'total_days': actual_days,
             'current_day': 1,
             'completed_actions': [],
             'status': 'in_progress',
+            'warmup_type': warmup_type,
             'started_at': now_moscow().isoformat(),
             'next_action_at': now_moscow().isoformat()
         })
@@ -1926,11 +1930,13 @@ class DB:
     # ==================== AUTH TASKS ====================
 
     @classmethod
-    def create_auth_task(cls, user_id: int, phone: str, folder_id: int = None) -> Optional[Dict]:
+    def create_auth_task(cls, user_id: int, phone: str, folder_id: int = None, 
+                        task_type: str = 'manual') -> Optional[Dict]:
         data = {
             'owner_id': user_id,
             'phone': phone,
             'status': 'pending',
+            'task_type': task_type,
             'created_at': now_moscow().isoformat(),
             'expires_at': (now_moscow() + timedelta(minutes=10)).isoformat()
         }
@@ -2622,3 +2628,217 @@ class DB:
         return cls._select('sent_messages',
             filters={'campaign_id': campaign_id},
             order='sent_at.asc')
+
+    # ==================== VPS TASKS ====================
+
+    @classmethod
+    def create_vps_task(cls, user_id: int, task_type: str, task_data: dict,
+                        priority: int = 5, scheduled_at: datetime = None) -> Optional[Dict]:
+        """Создать задачу для VPS"""
+        data = {
+            'owner_id': user_id,
+            'task_type': task_type,
+            'task_data': task_data,
+            'priority': priority,
+            'status': 'pending',
+            'created_at': now_moscow().isoformat()
+        }
+        if scheduled_at:
+            data['scheduled_at'] = scheduled_at.isoformat()
+        return cls._insert('vps_tasks', data)
+
+    @classmethod
+    def get_vps_tasks(cls, user_id: int, status: str = None) -> List[Dict]:
+        """Получить VPS задачи пользователя"""
+        filters = {'owner_id': user_id}
+        if status:
+            filters['status'] = status
+        return cls._select('vps_tasks', filters=filters, order='created_at.desc')
+
+    @classmethod
+    def get_pending_vps_tasks(cls) -> List[Dict]:
+        """Получить все ожидающие VPS задачи"""
+        return cls._select('vps_tasks', filters={'status': 'pending'}, 
+                          order='priority.desc,created_at.asc')
+
+    @classmethod
+    def update_vps_task(cls, task_id: int, **kwargs) -> bool:
+        kwargs['updated_at'] = now_moscow().isoformat()
+        return cls._update('vps_tasks', kwargs, {'id': task_id})
+
+    @classmethod
+    def delete_vps_task(cls, task_id: int) -> bool:
+        return cls._delete('vps_tasks', {'id': task_id})
+
+    # ==================== ACCOUNT FOLDER HELPERS ====================
+
+    @classmethod
+    def get_account_folder_by_name(cls, user_id: int, name: str) -> Optional[Dict]:
+        """Получить папку аккаунтов по имени"""
+        try:
+            params = {
+                'select': '*',
+                'owner_id': f'eq.{user_id}',
+                'name': f'eq.{name}',
+                'limit': 1
+            }
+            response = requests.get(cls._api_url('account_folders'), 
+                                   headers=cls._headers(), params=params, timeout=10)
+            data = response.json() if response.ok else []
+            return data[0] if data else None
+        except Exception as e:
+            logger.error(f"get_account_folder_by_name error: {e}")
+            return None
+
+    @classmethod
+    def get_accounts_by_warmup_type(cls, user_id: int, warmup_type: str) -> List[Dict]:
+        """Получить аккаунты по типу прогрева"""
+        try:
+            params = {
+                'select': '*',
+                'owner_id': f'eq.{user_id}',
+                'warmup_type': f'eq.{warmup_type}',
+                'warmup_status': 'in.(pending_warm,in_progress)'
+            }
+            response = requests.get(cls._api_url('telegram_accounts'), 
+                                   headers=cls._headers(), params=params, timeout=10)
+            return response.json() if response.ok else []
+        except Exception as e:
+            logger.error(f"get_accounts_by_warmup_type error: {e}")
+            return []
+
+    @classmethod
+    def check_account_exists(cls, user_id: int, phone: str) -> bool:
+        """Проверить существует ли аккаунт с таким номером"""
+        existing = cls._select('telegram_accounts', 
+                              filters={'owner_id': user_id, 'phone': phone}, 
+                              single=True)
+        return existing is not None
+
+    # ==================== SCHEDULED CONTENT (CONTENT PLAN) ====================
+
+    @classmethod
+    def create_scheduled_content(cls, user_id: int, channel_id: int, content: str,
+                                 scheduled_at: datetime, repeat_mode: str = 'once',
+                                 media_url: str = None, media_type: str = None) -> Optional[Dict]:
+        """Создать запланированный контент"""
+        data = {
+            'owner_id': user_id,
+            'channel_id': channel_id,
+            'content': content,
+            'scheduled_at': scheduled_at.isoformat(),
+            'repeat_mode': repeat_mode,
+            'status': 'pending',
+            'created_at': now_moscow().isoformat()
+        }
+        if media_url:
+            data['media_url'] = media_url
+            data['media_type'] = media_type
+        return cls._insert('scheduled_content', data)
+
+    @classmethod
+    def get_scheduled_content(cls, user_id: int, status: str = None, 
+                             channel_id: int = None) -> List[Dict]:
+        """Получить запланированный контент"""
+        filters = {'owner_id': user_id}
+        if status:
+            filters['status'] = status
+        if channel_id:
+            filters['channel_id'] = channel_id
+        return cls._select('scheduled_content', filters=filters, 
+                          order='scheduled_at.asc')
+
+    @classmethod
+    def get_scheduled_content_item(cls, content_id: int) -> Optional[Dict]:
+        """Получить элемент запланированного контента"""
+        return cls._select('scheduled_content', filters={'id': content_id}, single=True)
+
+    @classmethod
+    def get_due_scheduled_content(cls) -> List[Dict]:
+        """Получить контент готовый к публикации"""
+        try:
+            now = now_moscow().isoformat()
+            params = {
+                'select': '*',
+                'status': 'eq.pending',
+                'scheduled_at': f'lte.{now}'
+            }
+            response = requests.get(cls._api_url('scheduled_content'), 
+                                   headers=cls._headers(), params=params, timeout=10)
+            return response.json() if response.ok else []
+        except Exception as e:
+            logger.error(f"get_due_scheduled_content error: {e}")
+            return []
+
+    @classmethod
+    def update_scheduled_content(cls, content_id: int, **kwargs) -> bool:
+        kwargs['updated_at'] = now_moscow().isoformat()
+        return cls._update('scheduled_content', kwargs, {'id': content_id})
+
+    @classmethod
+    def delete_scheduled_content(cls, content_id: int) -> bool:
+        return cls._delete('scheduled_content', {'id': content_id})
+
+    # ==================== TEMPLATE SCHEDULES ====================
+
+    @classmethod
+    def create_template_schedule(cls, user_id: int, template_id: int, 
+                                channel_id: int, publish_time: str) -> Optional[Dict]:
+        """Создать расписание публикации шаблона"""
+        data = {
+            'owner_id': user_id,
+            'template_id': template_id,
+            'channel_id': channel_id,
+            'publish_time': publish_time,
+            'is_active': True,
+            'created_at': now_moscow().isoformat()
+        }
+        return cls._insert('template_schedules', data)
+
+    @classmethod
+    def get_template_schedules(cls, user_id: int, active_only: bool = True) -> List[Dict]:
+        """Получить расписания шаблонов"""
+        filters = {'owner_id': user_id}
+        if active_only:
+            filters['is_active'] = True
+        return cls._select('template_schedules', filters=filters, 
+                          order='publish_time.asc')
+
+    @classmethod
+    def get_template_schedule(cls, schedule_id: int) -> Optional[Dict]:
+        return cls._select('template_schedules', filters={'id': schedule_id}, single=True)
+
+    @classmethod
+    def update_template_schedule(cls, schedule_id: int, **kwargs) -> bool:
+        kwargs['updated_at'] = now_moscow().isoformat()
+        return cls._update('template_schedules', kwargs, {'id': schedule_id})
+
+    @classmethod
+    def delete_template_schedule(cls, schedule_id: int) -> bool:
+        return cls._delete('template_schedules', {'id': schedule_id})
+
+    @classmethod
+    def get_due_template_schedules(cls) -> List[Dict]:
+        """Получить расписания готовые к публикации"""
+        try:
+            now = now_moscow()
+            current_time = now.strftime('%H:%M')
+            params = {
+                'select': '*',
+                'is_active': 'eq.true',
+                'publish_time': f'eq.{current_time}'
+            }
+            response = requests.get(cls._api_url('template_schedules'), 
+                                   headers=cls._headers(), params=params, timeout=10)
+            return response.json() if response.ok else []
+        except Exception as e:
+            logger.error(f"get_due_template_schedules error: {e}")
+            return []
+
+    # ==================== TREND SNAPSHOTS (stub) ====================
+
+    @classmethod
+    def get_trend_snapshots(cls, user_id: int, limit: int = 10) -> List[Dict]:
+        """Получить снимки трендов (заглушка - возвращает пустой список)"""
+        # Тренды пока не реализованы, возвращаем пустой список
+        return []
