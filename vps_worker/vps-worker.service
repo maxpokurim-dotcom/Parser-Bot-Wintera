@@ -1,0 +1,28 @@
+[Unit]
+Description=VPS Worker for Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/vps_worker
+Environment="PATH=/opt/vps_worker/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/opt/vps_worker/venv/bin/python /opt/vps_worker/main.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/vps_worker/worker.log
+StandardError=append:/var/log/vps_worker/error.log
+
+# Security settings
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/vps_worker/sessions /opt/vps_worker/logs /opt/vps_worker/data /var/log/vps_worker
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target
