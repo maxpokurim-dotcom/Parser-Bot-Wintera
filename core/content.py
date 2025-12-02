@@ -110,6 +110,10 @@ def handle_content(chat_id: int, user_id: int, text: str, state: str, saved: dic
         if text == BTN_MY_CHANNELS:
             show_my_channels_menu(chat_id, user_id)
             return True
+    
+    # Content plan states
+    if state.startswith('content:plan:'):
+        return handle_content_plan(chat_id, user_id, text, state, saved)
     # Post generation flow
     if state == 'content:gen:topic':
         return _handle_gen_topic(chat_id, user_id, text, saved)
@@ -628,17 +632,691 @@ def show_auto_templates(chat_id: int, user_id: int):
     )
 
 def show_content_plan(chat_id: int, user_id: int):
-    """Show content plan (stub with task creation)"""
+    """Show content plan with calendar and scheduled posts"""
+    DB.set_user_state(user_id, 'content:plan:menu')
+    
+    # Get scheduled posts
+    scheduled = DB.get_scheduled_content(user_id)
+    
+    # Get templates count
+    templates = DB.get_templates(user_id)
+    
+    # Get channels
+    channels = DB.get_user_channels(user_id)
+    
+    # Group by date
+    from core.timezone import now_moscow, format_moscow, DAY_NAMES_RU
+    today = now_moscow().date()
+    
+    upcoming = []
+    for s in scheduled[:10]:
+        scheduled_at = s.get('scheduled_at', '')
+        if scheduled_at:
+            try:
+                from core.timezone import parse_datetime
+                dt = parse_datetime(scheduled_at)
+                if dt and dt.date() >= today:
+                    upcoming.append({
+                        'id': s['id'],
+                        'title': s.get('title', 'Без названия')[:30],
+                        'scheduled_at': dt,
+                        'display_time': format_moscow(dt, '%d.%m %H:%M')
+                    })
+            except:
+                pass
+    
+    upcoming.sort(key=lambda x: x['scheduled_at'])
+    
+    text = f"📅 <b>Контент-план</b>\n\n"
+    
+    if upcoming:
+        text += f"<b>📆 Ближайшие публикации:</b>\n"
+        for i, post in enumerate(upcoming[:5], 1):
+            text += f"  {i}. {post['display_time']} — {post['title']}\n"
+        text += "\n"
+    else:
+        text += "📭 <i>Нет запланированных публикаций</i>\n\n"
+    
+    text += f"<b>📊 Статистика:</b>\n"
+    text += f"├ Запланировано: <b>{len(scheduled)}</b>\n"
+    text += f"├ Шаблонов: <b>{len(templates)}</b>\n"
+    text += f"└ Каналов: <b>{len(channels)}</b>\n\n"
+    
+    text += f"💡 <i>Планируйте посты с привязкой к шаблонам\n"
+    text += f"для регулярных публикаций</i>"
+    
+    send_message(chat_id, text, reply_keyboard([
+        ['➕ Запланировать пост'],
+        ['📋 Все запланированные', '🔗 Связать с шаблоном'],
+        ['📅 Календарь', '⚙️ Автопостинг'],
+        ['◀️ Назад']
+    ]))
+
+
+def handle_content_plan(chat_id: int, user_id: int, text: str, state: str, saved: dict) -> bool:
+    """Handle content plan states"""
+    
+    if state == 'content:plan:menu':
+        if text == '➕ Запланировать пост':
+            start_schedule_post(chat_id, user_id)
+            return True
+        if text == '📋 Все запланированные':
+            show_all_scheduled_content(chat_id, user_id)
+            return True
+        if text == '🔗 Связать с шаблоном':
+            start_link_template(chat_id, user_id)
+            return True
+        if text == '📅 Календарь':
+            show_content_calendar(chat_id, user_id)
+            return True
+        if text == '⚙️ Автопостинг':
+            show_autopost_settings(chat_id, user_id)
+            return True
+    
+    # Schedule post flow
+    if state == 'content:plan:schedule:channel':
+        return True  # Handled by callback
+    
+    if state == 'content:plan:schedule:content':
+        return _handle_schedule_content(chat_id, user_id, text, saved)
+    
+    if state == 'content:plan:schedule:time':
+        return _handle_schedule_time(chat_id, user_id, text, saved)
+    
+    if state == 'content:plan:schedule:repeat':
+        return _handle_schedule_repeat(chat_id, user_id, text, saved)
+    
+    if state == 'content:plan:schedule:confirm':
+        return _handle_schedule_confirm(chat_id, user_id, text, saved)
+    
+    # Link template flow
+    if state == 'content:plan:link:template':
+        return True  # Handled by callback
+    
+    if state == 'content:plan:link:channel':
+        return True  # Handled by callback
+    
+    if state == 'content:plan:link:schedule':
+        return _handle_link_schedule(chat_id, user_id, text, saved)
+    
+    if state == 'content:plan:link:confirm':
+        return _handle_link_confirm(chat_id, user_id, text, saved)
+    
+    # Autopost settings
+    if state == 'content:plan:autopost':
+        return _handle_autopost_settings(chat_id, user_id, text, saved)
+    
+    return False
+
+
+def start_schedule_post(chat_id: int, user_id: int):
+    """Start scheduling a new post"""
+    channels = DB.get_user_channels(user_id)
+    
+    if not channels:
+        send_message(chat_id,
+            "❌ <b>Нет добавленных каналов</b>\n\n"
+            "Добавьте канал в разделе «🔗 Мои каналы»",
+            kb_content_menu()
+        )
+        return
+    
+    DB.set_user_state(user_id, 'content:plan:schedule:channel', {'channels': channels})
+    
+    # Create inline keyboard with channels
+    buttons = []
+    for ch in channels[:10]:
+        buttons.append([{
+            'text': f"@{ch['channel_username']}",
+            'callback_data': f"cpch:{ch['id']}"
+        }])
+    
+    from core.keyboards import inline_keyboard
     send_message(chat_id,
-        "📅 <b>Контент-план</b>\n"
-        "Функция в разработке.\n"
-        "В будущем будет доступно планирование публикаций.",
-        kb_content_menu()
+        "➕ <b>Запланировать пост</b>\n\n"
+        "<b>Шаг 1/4:</b> Выберите канал:",
+        inline_keyboard(buttons)
     )
+
+
+def _handle_schedule_content(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle content input for scheduled post"""
+    content = text.strip()
+    
+    if len(content) < 10:
+        send_message(chat_id, "❌ Текст слишком короткий (минимум 10 символов)", kb_back_cancel())
+        return True
+    
+    if len(content) > 4096:
+        content = content[:4096]
+    
+    saved['content'] = content
+    saved['title'] = content[:50].replace('\n', ' ')
+    
+    DB.set_user_state(user_id, 'content:plan:schedule:time', saved)
+    
+    from core.timezone import now_moscow, format_moscow
+    current_time = format_moscow(now_moscow(), '%d.%m.%Y %H:%M')
+    
+    send_message(chat_id,
+        f"✅ Текст сохранён\n\n"
+        f"<b>Шаг 3/4:</b> Введите дату и время публикации:\n\n"
+        f"<b>Формат:</b> <code>DD.MM.YYYY HH:MM</code>\n\n"
+        f"<b>Примеры:</b>\n"
+        f"• <code>05.12.2025 17:00</code>\n"
+        f"• <code>15:30</code> — сегодня/завтра\n\n"
+        f"🕐 <i>Текущее время (МСК): {current_time}</i>",
+        kb_back_cancel()
+    )
+    return True
+
+
+def _handle_schedule_time(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle time input for scheduled post"""
+    from core.timezone import parse_time_input, now_moscow, from_moscow_to_utc
+    
+    scheduled_msk = parse_time_input(text)
+    
+    if not scheduled_msk:
+        send_message(chat_id,
+            "❌ Неверный формат.\n\n"
+            "<b>Примеры:</b>\n"
+            "• <code>05.12.2025 17:00</code>\n"
+            "• <code>15:30</code>",
+            kb_back_cancel()
+        )
+        return True
+    
+    if scheduled_msk <= now_moscow():
+        send_message(chat_id, "❌ Время должно быть в будущем", kb_back_cancel())
+        return True
+    
+    # Store in UTC
+    saved['scheduled_at'] = from_moscow_to_utc(scheduled_msk)
+    saved['display_time'] = scheduled_msk.strftime('%d.%m.%Y %H:%M')
+    
+    DB.set_user_state(user_id, 'content:plan:schedule:repeat', saved)
+    
+    send_message(chat_id,
+        f"✅ Время: <b>{saved['display_time']}</b> МСК\n\n"
+        f"<b>Шаг 4/4:</b> Режим повторения:",
+        reply_keyboard([
+            ['🔂 Один раз'],
+            ['📅 Ежедневно', '📆 Еженедельно'],
+            ['◀️ Назад', '❌ Отмена']
+        ])
+    )
+    return True
+
+
+def _handle_schedule_repeat(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle repeat mode selection"""
+    repeat_map = {
+        '🔂 Один раз': 'once',
+        '📅 Ежедневно': 'daily',
+        '📆 Еженедельно': 'weekly'
+    }
+    
+    repeat_mode = repeat_map.get(text)
+    if not repeat_mode:
+        send_message(chat_id, "❌ Выберите режим из списка", kb_back_cancel())
+        return True
+    
+    saved['repeat_mode'] = repeat_mode
+    
+    # Show confirmation
+    channel = DB.get_user_channel(saved['channel_id'])
+    channel_name = f"@{channel['channel_username']}" if channel else "Неизвестно"
+    
+    repeat_names = {'once': 'Один раз', 'daily': 'Ежедневно', 'weekly': 'Еженедельно'}
+    
+    DB.set_user_state(user_id, 'content:plan:schedule:confirm', saved)
+    
+    content_preview = saved.get('content', '')[:100]
+    if len(saved.get('content', '')) > 100:
+        content_preview += "..."
+    
+    send_message(chat_id,
+        f"📋 <b>Подтверждение</b>\n\n"
+        f"📢 Канал: <b>{channel_name}</b>\n"
+        f"📅 Время: <b>{saved['display_time']}</b> МСК\n"
+        f"🔄 Повтор: <b>{repeat_names.get(repeat_mode)}</b>\n\n"
+        f"<b>Текст:</b>\n<i>{content_preview}</i>",
+        reply_keyboard([
+            ['✅ Подтвердить'],
+            ['◀️ Назад', '❌ Отмена']
+        ])
+    )
+    return True
+
+
+def _handle_schedule_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle schedule confirmation"""
+    if text == '✅ Подтвердить':
+        # Create scheduled content
+        result = DB.create_scheduled_content(
+            user_id=user_id,
+            channel_id=saved['channel_id'],
+            content=saved['content'],
+            title=saved.get('title', 'Пост'),
+            scheduled_at=saved['scheduled_at'],
+            repeat_mode=saved['repeat_mode']
+        )
+        
+        if result:
+            send_message(chat_id,
+                f"✅ <b>Пост запланирован!</b>\n\n"
+                f"📅 Публикация: <b>{saved['display_time']}</b> МСК\n"
+                f"🆔 ID: #{result['id']}",
+                kb_content_menu()
+            )
+        else:
+            send_message(chat_id, "❌ Ошибка планирования", kb_content_menu())
+        
+        DB.set_user_state(user_id, 'content:menu')
+        return True
+    
+    return False
+
+
+def start_link_template(chat_id: int, user_id: int):
+    """Start linking template to content plan"""
+    templates = DB.get_templates(user_id)
+    
+    if not templates:
+        send_message(chat_id,
+            "❌ <b>Нет шаблонов</b>\n\n"
+            "Создайте шаблон в разделе «📄 Шаблоны»",
+            kb_content_menu()
+        )
+        return
+    
+    DB.set_user_state(user_id, 'content:plan:link:template', {'templates': templates})
+    
+    # Create inline keyboard with templates
+    buttons = []
+    for t in templates[:15]:
+        name = t.get('name', 'Без имени')[:25]
+        buttons.append([{
+            'text': f"📝 {name}",
+            'callback_data': f"cptpl:{t['id']}"
+        }])
+    
+    from core.keyboards import inline_keyboard
+    send_message(chat_id,
+        "🔗 <b>Связать с шаблоном</b>\n\n"
+        "<b>Шаг 1/3:</b> Выберите шаблон:",
+        inline_keyboard(buttons)
+    )
+
+
+def _handle_link_schedule(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle schedule settings for template link"""
+    from core.timezone import parse_time_input, from_moscow_to_utc, now_moscow
+    
+    # Parse time
+    scheduled = parse_time_input(text)
+    if not scheduled:
+        send_message(chat_id,
+            "❌ Неверный формат.\n\n"
+            "Введите время в формате <code>HH:MM</code> или <code>DD.MM.YYYY HH:MM</code>",
+            kb_back_cancel()
+        )
+        return True
+    
+    saved['post_time'] = text.strip()
+    saved['scheduled_at'] = from_moscow_to_utc(scheduled)
+    
+    # Show confirmation
+    template = DB.get_template(saved['template_id'])
+    channel = DB.get_user_channel(saved['channel_id'])
+    
+    template_name = template.get('name', 'Неизвестно') if template else 'Неизвестно'
+    channel_name = f"@{channel['channel_username']}" if channel else 'Неизвестно'
+    
+    DB.set_user_state(user_id, 'content:plan:link:confirm', saved)
+    
+    send_message(chat_id,
+        f"📋 <b>Подтверждение связи</b>\n\n"
+        f"📝 Шаблон: <b>{template_name}</b>\n"
+        f"📢 Канал: <b>{channel_name}</b>\n"
+        f"⏰ Время публикации: <b>{text.strip()}</b>\n\n"
+        f"Шаблон будет автоматически публиковаться в указанное время.",
+        reply_keyboard([
+            ['✅ Подтвердить'],
+            ['◀️ Назад', '❌ Отмена']
+        ])
+    )
+    return True
+
+
+def _handle_link_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle link confirmation"""
+    if text == '✅ Подтвердить':
+        # Create template schedule
+        result = DB.create_template_schedule(
+            user_id=user_id,
+            template_id=saved['template_id'],
+            channel_id=saved['channel_id'],
+            post_time=saved['post_time'],
+            repeat_mode='daily'  # Default to daily
+        )
+        
+        if result:
+            send_message(chat_id,
+                f"✅ <b>Шаблон связан!</b>\n\n"
+                f"Публикация будет происходить автоматически.\n"
+                f"Управляйте в разделе «⚙️ Автопостинг»",
+                kb_content_menu()
+            )
+        else:
+            send_message(chat_id, "❌ Ошибка создания связи", kb_content_menu())
+        
+        DB.set_user_state(user_id, 'content:menu')
+        return True
+    
+    return False
+
+
+def show_all_scheduled_content(chat_id: int, user_id: int):
+    """Show all scheduled content"""
+    scheduled = DB.get_scheduled_content(user_id)
+    
+    if not scheduled:
+        send_message(chat_id,
+            "📋 <b>Запланированные публикации</b>\n\n"
+            "Нет запланированных постов.",
+            kb_content_menu()
+        )
+        return
+    
+    from core.timezone import parse_datetime, format_moscow
+    
+    text = f"📋 <b>Запланированные публикации ({len(scheduled)}):</b>\n\n"
+    
+    for s in scheduled[:10]:
+        title = s.get('title', 'Без названия')[:30]
+        scheduled_at = s.get('scheduled_at', '')
+        
+        try:
+            dt = parse_datetime(scheduled_at)
+            display_time = format_moscow(dt, '%d.%m %H:%M') if dt else scheduled_at[:16]
+        except:
+            display_time = scheduled_at[:16]
+        
+        status_emoji = {'pending': '⏳', 'published': '✅', 'failed': '❌'}.get(s.get('status'), '📝')
+        
+        text += f"{status_emoji} <b>#{s['id']}</b> | {display_time}\n"
+        text += f"   {title}\n\n"
+    
+    # Create inline keyboard
+    buttons = []
+    for s in scheduled[:10]:
+        buttons.append([{
+            'text': f"📝 #{s['id']}",
+            'callback_data': f"cpview:{s['id']}"
+        }, {
+            'text': '🗑',
+            'callback_data': f"cpdel:{s['id']}"
+        }])
+    
+    from core.keyboards import inline_keyboard
+    send_message(chat_id, text, inline_keyboard(buttons) if buttons else None)
+    send_message(chat_id, "Выберите пост для управления:", kb_content_menu())
+
+
+def show_content_calendar(chat_id: int, user_id: int):
+    """Show content calendar view"""
+    from core.timezone import now_moscow, DAY_NAMES_RU
+    from datetime import timedelta
+    
+    today = now_moscow()
+    scheduled = DB.get_scheduled_content(user_id)
+    
+    # Build calendar for next 7 days
+    text = "📅 <b>Календарь публикаций</b>\n\n"
+    
+    for i in range(7):
+        day = today + timedelta(days=i)
+        day_name = DAY_NAMES_RU[day.weekday()]
+        date_str = day.strftime('%d.%m')
+        
+        # Find posts for this day
+        day_posts = []
+        for s in scheduled:
+            try:
+                from core.timezone import parse_datetime
+                dt = parse_datetime(s.get('scheduled_at', ''))
+                if dt and dt.date() == day.date():
+                    day_posts.append({
+                        'time': dt.strftime('%H:%M'),
+                        'title': s.get('title', '')[:20]
+                    })
+            except:
+                pass
+        
+        day_posts.sort(key=lambda x: x['time'])
+        
+        if i == 0:
+            text += f"<b>📌 {day_name} {date_str} (сегодня)</b>\n"
+        elif i == 1:
+            text += f"<b>📅 {day_name} {date_str} (завтра)</b>\n"
+        else:
+            text += f"<b>📅 {day_name} {date_str}</b>\n"
+        
+        if day_posts:
+            for p in day_posts[:3]:
+                text += f"   {p['time']} — {p['title']}\n"
+        else:
+            text += "   <i>—</i>\n"
+        
+        text += "\n"
+    
+    send_message(chat_id, text, kb_content_menu())
+
+
+def show_autopost_settings(chat_id: int, user_id: int):
+    """Show autopost settings"""
+    DB.set_user_state(user_id, 'content:plan:autopost')
+    
+    settings = DB.get_user_settings(user_id)
+    autopost = settings.get('autopost_settings', {})
+    
+    enabled = '✅ Вкл' if autopost.get('enabled') else '❌ Выкл'
+    notify = '✅ Вкл' if autopost.get('notify_before') else '❌ Выкл'
+    
+    # Get active template schedules
+    schedules = DB.get_template_schedules(user_id)
+    active_count = len([s for s in schedules if s.get('status') == 'active'])
+    
+    send_message(chat_id,
+        f"⚙️ <b>Автопостинг</b>\n\n"
+        f"<b>Статус:</b> {enabled}\n"
+        f"<b>Уведомлять перед публикацией:</b> {notify}\n\n"
+        f"<b>Активных связей:</b> {active_count}\n\n"
+        f"Автопостинг позволяет:\n"
+        f"• Публиковать шаблоны по расписанию\n"
+        f"• Уведомлять перед публикацией\n"
+        f"• Редактировать перед отправкой",
+        reply_keyboard([
+            ['✅ Включить' if not autopost.get('enabled') else '❌ Выключить'],
+            ['🔔 Уведомления', '📋 Связи'],
+            ['◀️ Назад']
+        ])
+    )
+
+
+def _handle_autopost_settings(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle autopost settings"""
+    settings = DB.get_user_settings(user_id)
+    autopost = settings.get('autopost_settings', {})
+    
+    if text == '✅ Включить':
+        autopost['enabled'] = True
+        DB.update_user_settings(user_id, autopost_settings=autopost)
+        send_message(chat_id, "✅ Автопостинг включён", kb_content_menu())
+        show_autopost_settings(chat_id, user_id)
+        return True
+    
+    if text == '❌ Выключить':
+        autopost['enabled'] = False
+        DB.update_user_settings(user_id, autopost_settings=autopost)
+        send_message(chat_id, "❌ Автопостинг выключен", kb_content_menu())
+        show_autopost_settings(chat_id, user_id)
+        return True
+    
+    if text == '🔔 Уведомления':
+        autopost['notify_before'] = not autopost.get('notify_before', False)
+        DB.update_user_settings(user_id, autopost_settings=autopost)
+        status = '✅ включены' if autopost['notify_before'] else '❌ выключены'
+        send_message(chat_id, f"Уведомления {status}", kb_content_menu())
+        show_autopost_settings(chat_id, user_id)
+        return True
+    
+    if text == '📋 Связи':
+        schedules = DB.get_template_schedules(user_id)
+        
+        if not schedules:
+            send_message(chat_id, "Нет активных связей шаблонов", kb_content_menu())
+            return True
+        
+        text = "📋 <b>Связи шаблонов:</b>\n\n"
+        for s in schedules[:10]:
+            template = DB.get_template(s.get('template_id'))
+            channel = DB.get_user_channel(s.get('channel_id'))
+            
+            template_name = template.get('name', '?')[:20] if template else '?'
+            channel_name = f"@{channel['channel_username']}" if channel else '?'
+            
+            status = '🟢' if s.get('status') == 'active' else '⏸'
+            
+            text += f"{status} {template_name} → {channel_name}\n"
+            text += f"   ⏰ {s.get('post_time', '?')}\n\n"
+        
+        send_message(chat_id, text, kb_content_menu())
+        show_autopost_settings(chat_id, user_id)
+        return True
+    
+    return False
+
+
+def handle_content_plan_callback(chat_id: int, msg_id: int, user_id: int, data: str) -> bool:
+    """Handle content plan callbacks"""
+    
+    # Channel selection for scheduling
+    if data.startswith('cpch:'):
+        channel_id = int(data.split(':')[1])
+        state_data = DB.get_user_state(user_id)
+        saved = state_data.get('data', {}) if state_data else {}
+        saved['channel_id'] = channel_id
+        
+        DB.set_user_state(user_id, 'content:plan:schedule:content', saved)
+        
+        channel = DB.get_user_channel(channel_id)
+        channel_name = f"@{channel['channel_username']}" if channel else "Канал"
+        
+        send_message(chat_id,
+            f"✅ Канал: <b>{channel_name}</b>\n\n"
+            f"<b>Шаг 2/4:</b> Введите текст поста:\n\n"
+            f"<i>Можете использовать форматирование HTML</i>",
+            kb_back_cancel()
+        )
+        return True
+    
+    # Template selection for linking
+    if data.startswith('cptpl:'):
+        template_id = int(data.split(':')[1])
+        state_data = DB.get_user_state(user_id)
+        saved = state_data.get('data', {}) if state_data else {}
+        saved['template_id'] = template_id
+        
+        # Now select channel
+        channels = DB.get_user_channels(user_id)
+        if not channels:
+            send_message(chat_id, "❌ Нет каналов", kb_content_menu())
+            return True
+        
+        DB.set_user_state(user_id, 'content:plan:link:channel', saved)
+        
+        buttons = []
+        for ch in channels[:10]:
+            buttons.append([{
+                'text': f"@{ch['channel_username']}",
+                'callback_data': f"cplch:{ch['id']}"
+            }])
+        
+        from core.keyboards import inline_keyboard
+        send_message(chat_id,
+            f"<b>Шаг 2/3:</b> Выберите канал для публикации:",
+            inline_keyboard(buttons)
+        )
+        return True
+    
+    # Channel selection for linking
+    if data.startswith('cplch:'):
+        channel_id = int(data.split(':')[1])
+        state_data = DB.get_user_state(user_id)
+        saved = state_data.get('data', {}) if state_data else {}
+        saved['channel_id'] = channel_id
+        
+        DB.set_user_state(user_id, 'content:plan:link:schedule', saved)
+        
+        from core.timezone import now_moscow, format_moscow
+        current_time = format_moscow(now_moscow(), '%H:%M')
+        
+        send_message(chat_id,
+            f"<b>Шаг 3/3:</b> Введите время ежедневной публикации:\n\n"
+            f"<b>Формат:</b> <code>HH:MM</code>\n\n"
+            f"<b>Пример:</b> <code>10:00</code>\n\n"
+            f"🕐 <i>Текущее время (МСК): {current_time}</i>",
+            kb_back_cancel()
+        )
+        return True
+    
+    # View scheduled post
+    if data.startswith('cpview:'):
+        post_id = int(data.split(':')[1])
+        post = DB.get_scheduled_content_item(post_id)
+        
+        if post:
+            from core.timezone import parse_datetime, format_moscow
+            
+            scheduled_at = parse_datetime(post.get('scheduled_at', ''))
+            display_time = format_moscow(scheduled_at, '%d.%m.%Y %H:%M') if scheduled_at else '?'
+            
+            content = post.get('content', '')[:500]
+            if len(post.get('content', '')) > 500:
+                content += "..."
+            
+            send_message(chat_id,
+                f"📝 <b>Запланированный пост #{post_id}</b>\n\n"
+                f"📅 Время: <b>{display_time}</b> МСК\n"
+                f"🔄 Повтор: {post.get('repeat_mode', 'once')}\n\n"
+                f"<b>Текст:</b>\n{content}",
+                kb_content_menu()
+            )
+        else:
+            send_message(chat_id, "❌ Пост не найден", kb_content_menu())
+        return True
+    
+    # Delete scheduled post
+    if data.startswith('cpdel:'):
+        post_id = int(data.split(':')[1])
+        DB.delete_scheduled_content(post_id)
+        send_message(chat_id, f"✅ Пост #{post_id} удалён", kb_content_menu())
+        show_content_plan(chat_id, user_id)
+        return True
+    
+    return False
 
 # ==================== CALLBACK HANDLER ====================
 def handle_content_callback(chat_id: int, msg_id: int, user_id: int, data: str) -> bool:
     """Handle content inline callbacks"""
+    
+    # Content plan callbacks
+    if data.startswith('cp'):
+        return handle_content_plan_callback(chat_id, msg_id, user_id, data)
+    
     # Channel selection
     if data.startswith('uch:'):
         channel_id = int(data.split(':')[1])

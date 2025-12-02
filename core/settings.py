@@ -8,7 +8,8 @@ from core.db import DB
 from core.telegram import send_message
 from core.keyboards import (
     kb_main_menu, kb_cancel, kb_back, kb_back_cancel,
-    kb_settings_menu, kb_quiet_hours, kb_notifications, kb_delay_settings,
+    kb_settings_menu, kb_settings_schedule, kb_settings_security, kb_settings_automation,
+    kb_quiet_hours, kb_notifications, kb_delay_settings,
     kb_cache_ttl, kb_auto_blacklist, kb_warmup_settings, kb_risk_tolerance,
     kb_ai_settings, kb_api_keys, kb_gpt_temperature,
     kb_stop_triggers_menu, kb_inline_stop_triggers,
@@ -81,9 +82,96 @@ def show_settings_menu(chat_id: int, user_id: int):
         f"├ 🔑 Yandex GPT: {yagpt}\n"
         f"└ 📱 OnlineSim: {onlinesim}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"💡 <i>Нажмите на пункт меню для настройки</i>",
+        f"💡 <i>Нажмите на раздел для настройки</i>",
         kb_settings_menu()
     )
+
+
+def show_schedule_submenu(chat_id: int, user_id: int):
+    """Show schedule and time settings submenu"""
+    DB.set_user_state(user_id, 'settings:schedule')
+    settings = DB.get_user_settings(user_id)
+    
+    qs = settings.get('quiet_hours_start')
+    qe = settings.get('quiet_hours_end')
+    quiet = f"{qs}-{qe} МСК" if qs and qe else "выкл"
+    
+    delay_min = settings.get('delay_min', 30) or 30
+    delay_max = settings.get('delay_max', 90) or 90
+    
+    cache_ttl = settings.get('mailing_cache_ttl', 30) or 30
+    cache_status = f"{cache_ttl} дней" if cache_ttl > 0 else "выкл"
+    
+    send_message(chat_id,
+        f"🕐 <b>Расписание и время</b>\n\n"
+        f"🌙 <b>Тихие часы:</b> {quiet}\n"
+        f"<i>Время, когда рассылки не отправляются</i>\n\n"
+        f"⏱ <b>Задержки:</b> {delay_min}-{delay_max} сек\n"
+        f"<i>Пауза между сообщениями</i>\n\n"
+        f"🗓 <b>Кэш рассылки:</b> {cache_status}\n"
+        f"<i>Исключение повторных отправок</i>",
+        kb_settings_schedule()
+    )
+
+
+def show_security_submenu(chat_id: int, user_id: int):
+    """Show security settings submenu"""
+    DB.set_user_state(user_id, 'settings:security')
+    settings = DB.get_user_settings(user_id)
+    
+    auto_bl = '✅ вкл' if settings.get('auto_blacklist_enabled', True) else '❌ выкл'
+    triggers = DB.get_stop_triggers(user_id)
+    active_count = sum(1 for t in triggers if t.get('is_active'))
+    
+    risk = {'low': '🟢 Низкий', 'medium': '🟡 Средний', 'high': '🔴 Высокий'}.get(
+        settings.get('risk_tolerance', 'medium'), '🟡 Средний')
+    
+    warmup = '✅ вкл' if settings.get('warmup_before_mailing', False) else '❌ выкл'
+    warmup_mins = settings.get('warmup_duration_minutes', 5) or 5
+    
+    send_message(chat_id,
+        f"🛡 <b>Безопасность</b>\n\n"
+        f"🛡 <b>Авто-блокировка:</b> {auto_bl}\n"
+        f"<i>Стоп-слов: {active_count}</i>\n\n"
+        f"⚠️ <b>Риск-толерантность:</b> {risk}\n"
+        f"<i>Влияет на агрессивность работы</i>\n\n"
+        f"🔥 <b>Прогрев:</b> {warmup}\n"
+        f"<i>Подготовка аккаунтов ({warmup_mins} мин)</i>",
+        kb_settings_security()
+    )
+
+
+def show_automation_submenu(chat_id: int, user_id: int):
+    """Show automation settings submenu"""
+    DB.set_user_state(user_id, 'settings:automation')
+    settings = DB.get_user_settings(user_id)
+    
+    herder = settings.get('herder_settings', {})
+    strategy_names = {
+        'observer': '📖 Наблюдатель',
+        'expert': '🧠 Эксперт',
+        'support': '💪 Поддержка',
+        'trendsetter': '🔥 Трендсеттер',
+        'community': '👥 Комьюнити'
+    }
+    strategy = strategy_names.get(herder.get('default_strategy', 'observer'), '📖 Наблюдатель')
+    
+    factory = settings.get('factory_settings', {})
+    warmup_days = factory.get('default_warmup_days', 5)
+    
+    learning = '✅ вкл' if settings.get('learning_mode', True) else '❌ выкл'
+    
+    send_message(chat_id,
+        f"🤖 <b>Автоматизация</b>\n\n"
+        f"🤖 <b>Ботовод:</b>\n"
+        f"<i>Стратегия: {strategy}</i>\n\n"
+        f"🏭 <b>Фабрика:</b>\n"
+        f"<i>Прогрев: {warmup_days} дней</i>\n\n"
+        f"🧠 <b>ИИ и обучение:</b> {learning}\n"
+        f"<i>Самообучение на результатах</i>",
+        kb_settings_automation()
+    )
+
 
 def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: dict) -> bool:
     """Handle settings states. Returns True if handled."""
@@ -96,27 +184,53 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
     if text == BTN_BACK or text == '◀️ Назад':
         if state == 'settings:menu':
             show_main_menu(chat_id, user_id)
-        elif state in [
-            'settings:herder', 'settings:herder:strategy', 'settings:herder:max_actions',
-            'settings:factory', 'settings:factory:warmup_days',
-            'settings:ai', 'settings:ai:temperature',
-            'settings:api_keys', 'settings:api:yagpt', 'settings:api:yagpt_folder', 'settings:api:onlinesim'
-        ]:
+        # Submenus back to main settings
+        elif state in ['settings:schedule', 'settings:security', 'settings:automation']:
             show_settings_menu(chat_id, user_id)
-            return True
+        # Schedule items back to schedule submenu
+        elif state in ['settings:quiet_hours', 'settings:quiet_hours_input', 
+                       'settings:delay', 'settings:delay_input', 'settings:cache_ttl']:
+            show_schedule_submenu(chat_id, user_id)
+        # Security items back to security submenu
+        elif state in ['settings:auto_blacklist', 'settings:risk_tolerance', 'settings:warmup']:
+            show_security_submenu(chat_id, user_id)
         elif state == 'settings:stop_triggers':
             show_auto_blacklist(chat_id, user_id)
+        # Automation items back to automation submenu
+        elif state in ['settings:herder', 'settings:herder:strategy', 'settings:herder:max_actions',
+                       'settings:factory', 'settings:factory:warmup_days',
+                       'settings:ai', 'settings:ai:temperature']:
+            show_automation_submenu(chat_id, user_id)
+        # API keys back to main settings
+        elif state in ['settings:api_keys', 'settings:api:yagpt', 'settings:api:yagpt_folder', 
+                       'settings:api:onlinesim', 'settings:notifications']:
+            show_settings_menu(chat_id, user_id)
         else:
             show_settings_menu(chat_id, user_id)
         return True
 
-    # Menu state
+    # Menu state - new grouped structure
     if state == 'settings:menu':
-        if text == BTN_QUIET_HOURS:
-            show_quiet_hours(chat_id, user_id)
+        if text == '🕐 Расписание и время':
+            show_schedule_submenu(chat_id, user_id)
+            return True
+        if text == '🛡 Безопасность':
+            show_security_submenu(chat_id, user_id)
+            return True
+        if text == '🤖 Автоматизация':
+            show_automation_submenu(chat_id, user_id)
             return True
         if text == BTN_NOTIFICATIONS:
             show_notifications(chat_id, user_id)
+            return True
+        if text == BTN_API_KEYS:
+            show_api_keys(chat_id, user_id)
+            return True
+    
+    # Schedule submenu
+    if state == 'settings:schedule':
+        if text == BTN_QUIET_HOURS:
+            show_quiet_hours(chat_id, user_id)
             return True
         if text == BTN_DELAY or text == '⏱ Задержки':
             show_delay_settings(chat_id, user_id)
@@ -124,16 +238,21 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
         if text == BTN_CACHE_TTL:
             show_cache_settings(chat_id, user_id)
             return True
+    
+    # Security submenu
+    if state == 'settings:security':
         if text == BTN_AUTO_BLACKLIST:
             show_auto_blacklist(chat_id, user_id)
             return True
-        if text == BTN_WARMUP:
-            show_warmup_settings(chat_id, user_id)
-            return True
-        # New settings
-        if text == BTN_RISK_TOLERANCE:
+        if text == BTN_RISK_TOLERANCE or text == '⚠️ Риск-толерантность':
             show_risk_tolerance(chat_id, user_id)
             return True
+        if text == '🔥 Прогрев аккаунтов':
+            show_warmup_settings(chat_id, user_id)
+            return True
+    
+    # Automation submenu
+    if state == 'settings:automation':
         if text == BTN_HERDER_SETTINGS:
             show_herder_settings(chat_id, user_id)
             return True
@@ -142,9 +261,6 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
             return True
         if text == BTN_AI_SETTINGS:
             show_ai_settings(chat_id, user_id)
-            return True
-        if text == BTN_API_KEYS:
-            show_api_keys(chat_id, user_id)
             return True
 
     # Quiet hours state

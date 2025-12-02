@@ -124,7 +124,19 @@ def handle_chat_parsing(chat_id: int, user_id: int, text: str, state: str, saved
     if state == 'parse_chat:activity':
         return _handle_chat_activity(chat_id, user_id, text, saved)
     
-    # Step 7: Confirm
+    # Step 7: Username filter
+    if state == 'parse_chat:username':
+        return _handle_chat_username_filter(chat_id, user_id, text, saved)
+    
+    # Step 8: Photo filter
+    if state == 'parse_chat:photo':
+        return _handle_chat_photo_filter(chat_id, user_id, text, saved)
+    
+    # Step 9: Bots filter
+    if state == 'parse_chat:bots':
+        return _handle_chat_bots_filter(chat_id, user_id, text, saved)
+    
+    # Step 10: Confirm
     if state == 'parse_chat:confirm':
         return _handle_chat_confirm(chat_id, user_id, text, saved)
     
@@ -142,7 +154,10 @@ def _handle_chat_back(chat_id: int, user_id: int, state: str, saved: dict) -> bo
         'parse_chat:semantic_depth': 'parse_chat:semantic_topic',
         'parse_chat:semantic_threshold': 'parse_chat:semantic_depth',
         'parse_chat:activity': 'parse_chat:mode',
-        'parse_chat:confirm': 'parse_chat:activity'
+        'parse_chat:username': 'parse_chat:activity',
+        'parse_chat:photo': 'parse_chat:username',
+        'parse_chat:bots': 'parse_chat:photo',
+        'parse_chat:confirm': 'parse_chat:bots'
     }
     
     prev_state = steps.get(state)
@@ -196,6 +211,31 @@ def _show_chat_step(chat_id: int, user_id: int, state: str, saved: dict):
             "• <code>владельцы малого бизнеса</code>\n\n"
             "ИИ найдёт пользователей, чьи сообщения соответствуют теме по смыслу.",
             kb_back_cancel()
+        )
+    elif state == 'parse_chat:activity':
+        send_message(chat_id,
+            "📊 <b>Фильтр по активности</b>\n\n"
+            "Фильтровать пользователей по времени последнего онлайна?",
+            kb_parse_filter_yn()
+        )
+    elif state == 'parse_chat:username':
+        send_message(chat_id,
+            "👤 <b>Фильтр по username</b>\n\n"
+            "Собирать только пользователей с @username?\n\n"
+            "⚠️ <i>Без username невозможно отправить сообщение</i>",
+            kb_parse_filter_yn()
+        )
+    elif state == 'parse_chat:photo':
+        send_message(chat_id,
+            "🖼 <b>Фильтр по фото профиля</b>\n\n"
+            "Собирать только пользователей с аватаркой?",
+            kb_parse_filter_yn()
+        )
+    elif state == 'parse_chat:bots':
+        send_message(chat_id,
+            "🤖 <b>Исключить ботов</b>\n\n"
+            "Исключить аккаунты ботов из результатов?",
+            kb_parse_filter_yn()
         )
 
 
@@ -470,6 +510,70 @@ def _handle_chat_activity(chat_id: int, user_id: int, text: str, saved: dict) ->
         send_message(chat_id, "❌ Выберите Да или Нет:", kb_parse_filter_yn())
         return True
     
+    # Next: username filter
+    DB.set_user_state(user_id, 'parse_chat:username', saved)
+    send_message(chat_id,
+        "👤 <b>Фильтр по username</b>\n\n"
+        "Собирать только пользователей с @username?\n\n"
+        "⚠️ <i>Без username невозможно отправить сообщение</i>",
+        kb_parse_filter_yn()
+    )
+    return True
+
+
+def _handle_chat_username_filter(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle username filter"""
+    if text == '✅ Да':
+        saved['filter_username'] = True
+    elif text == '❌ Нет':
+        saved['filter_username'] = False
+    else:
+        send_message(chat_id, "❌ Выберите Да или Нет:", kb_parse_filter_yn())
+        return True
+    
+    # Next: photo filter
+    DB.set_user_state(user_id, 'parse_chat:photo', saved)
+    send_message(chat_id,
+        "🖼 <b>Фильтр по фото профиля</b>\n\n"
+        "Собирать только пользователей с аватаркой?\n\n"
+        "💡 <i>Аккаунты с фото обычно более активны</i>",
+        kb_parse_filter_yn()
+    )
+    return True
+
+
+def _handle_chat_photo_filter(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle photo filter"""
+    if text == '✅ Да':
+        saved['filter_photo'] = True
+    elif text == '❌ Нет':
+        saved['filter_photo'] = False
+    else:
+        send_message(chat_id, "❌ Выберите Да или Нет:", kb_parse_filter_yn())
+        return True
+    
+    # Next: bot filter
+    DB.set_user_state(user_id, 'parse_chat:bots', saved)
+    send_message(chat_id,
+        "🤖 <b>Исключить ботов</b>\n\n"
+        "Исключить аккаунты ботов из результатов?\n\n"
+        "💡 <i>Рекомендуется для рассылок</i>",
+        kb_parse_filter_yn()
+    )
+    return True
+
+
+def _handle_chat_bots_filter(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle bots filter"""
+    if text == '✅ Да':
+        saved['filter_bots'] = True
+    elif text == '❌ Нет':
+        saved['filter_bots'] = False
+    else:
+        send_message(chat_id, "❌ Выберите Да или Нет:", kb_parse_filter_yn())
+        return True
+    
+    # Finally: confirm
     DB.set_user_state(user_id, 'parse_chat:confirm', saved)
     _show_chat_confirmation(chat_id, user_id, saved)
     return True
@@ -485,12 +589,21 @@ def _show_chat_confirmation(chat_id: int, user_id: int, saved: dict):
     
     activity_text = "✅ Да (активные за 30 дней)" if saved.get('filter_activity') else "❌ Нет"
     
+    # New filters
+    username_text = "✅ Да" if saved.get('filter_username') else "❌ Нет"
+    photo_text = "✅ Да" if saved.get('filter_photo') else "❌ Нет"
+    bots_text = "✅ Да" if saved.get('filter_bots') else "❌ Нет"
+    
     send_message(chat_id,
         f"📋 <b>Подтверждение парсинга</b>\n\n"
         f"📍 Чат: <code>{saved.get('source_link', '?')}</code>\n"
         f"📊 Лимит: <b>{saved.get('message_limit', 1000)}</b> сообщений\n\n"
-        f"<b>Фильтрация:</b>\n{mode_text}\n\n"
-        f"<b>Активность:</b> {activity_text}\n\n"
+        f"<b>Фильтрация контента:</b>\n{mode_text}\n\n"
+        f"<b>Фильтры пользователей:</b>\n"
+        f"├ Активность: {activity_text}\n"
+        f"├ Только с username: {username_text}\n"
+        f"├ Только с фото: {photo_text}\n"
+        f"└ Исключить ботов: {bots_text}\n\n"
         f"⚠️ Парсинг может занять несколько минут.",
         kb_parse_confirm()
     )
@@ -506,7 +619,11 @@ def _handle_chat_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> 
     filters = {
         'message_limit': saved.get('message_limit', 1000),
         'filter_activity': saved.get('filter_activity', False),
-        'activity_days': saved.get('activity_days', 30)
+        'activity_days': saved.get('activity_days', 30),
+        # New user filters
+        'filter_username': saved.get('filter_username', False),
+        'filter_photo': saved.get('filter_photo', False),
+        'filter_bots': saved.get('filter_bots', False)
     }
     
     # Prepare keyword/semantic filters

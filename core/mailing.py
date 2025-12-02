@@ -1,6 +1,7 @@
 """
-Mailing and campaign handlers - Extended v2.0
+Mailing and campaign handlers - Extended v2.1
 With warm start, adaptive delays, typing simulation, smart scheduling
+Moscow timezone support
 """
 import logging
 import re
@@ -13,9 +14,13 @@ from core.keyboards import (
     kb_mailing_settings, kb_scheduler_menu, kb_schedule_type, kb_schedule_repeat,
     kb_inline_mailing_sources, kb_inline_mailing_templates,
     kb_inline_mailing_acc_folders, kb_inline_campaigns, kb_inline_scheduled,
-    kb_inline_scheduled_tasks
+    kb_inline_scheduled_tasks, reply_keyboard, inline_keyboard
 )
 from core.menu import show_main_menu, BTN_CANCEL, BTN_BACK, BTN_MAIN_MENU
+from core.timezone import (
+    now_moscow, parse_time_input, from_moscow_to_utc, 
+    format_moscow, to_moscow
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +129,33 @@ def handle_mailing(chat_id: int, user_id: int, text: str, state: str, saved: dic
             show_scheduler_menu(chat_id, user_id)
             return True
     
+    # Scheduled list state - allow navigation back to menu
+    if state == 'mailing:scheduled_list':
+        if text == BTN_MAIL_NEW:
+            start_new_mailing(chat_id, user_id)
+            return True
+        if text == BTN_MAIL_ACTIVE:
+            show_active_campaigns(chat_id, user_id)
+            return True
+        if text == BTN_MAIL_SCHEDULED:
+            show_scheduled_mailings(chat_id, user_id)
+            return True
+        if text == BTN_MAIL_SCHEDULER or text == '⏰ Планировщик':
+            show_scheduler_menu(chat_id, user_id)
+            return True
+    
+    # View scheduled mailing state
+    if state.startswith('mailing:view_scheduled:'):
+        mailing_id = int(state.split(':')[2])
+        if text == '🗑 Отменить':
+            DB.delete_scheduled_mailing(mailing_id)
+            send_message(chat_id, "✅ Рассылка отменена", kb_mailing_menu())
+            show_scheduled_mailings(chat_id, user_id)
+            return True
+        if text == '◀️ К списку':
+            show_scheduled_mailings(chat_id, user_id)
+            return True
+    
     # Mailing settings state
     if state == 'mailing:settings':
         return handle_mailing_settings(chat_id, user_id, text, saved)
@@ -135,14 +167,16 @@ def handle_mailing(chat_id: int, user_id: int, text: str, state: str, saved: dic
             return True
         if text == BTN_MAIL_SCHEDULE:
             DB.set_user_state(user_id, 'mailing:schedule_time', saved)
+            current_time = format_moscow(now_moscow(), '%d.%m.%Y %H:%M')
             send_message(chat_id,
-                "📅 <b>Отложенная рассылка</b>\n\n"
-                "Введите дату и время запуска:\n\n"
-                "<b>Форматы:</b>\n"
-                "• <code>14:30</code> — сегодня/завтра\n"
-                "• <code>2024-12-25 14:30</code>\n"
-                "• <code>25.12.2024 14:30</code>\n\n"
-                "⚠️ Время в UTC",
+                f"📅 <b>Отложенная рассылка</b>\n\n"
+                f"Введите дату и время запуска:\n\n"
+                f"<b>Формат:</b> <code>DD.MM.YYYY HH:MM</code>\n\n"
+                f"<b>Примеры:</b>\n"
+                f"• <code>02.12.2025 17:00</code>\n"
+                f"• <code>15:30</code> — сегодня/завтра\n"
+                f"• <code>25.12 14:00</code> — в этом году\n\n"
+                f"🕐 <i>Текущее время (МСК): {current_time}</i>",
                 kb_back_cancel()
             )
             return True
@@ -152,34 +186,42 @@ def handle_mailing(chat_id: int, user_id: int, text: str, state: str, saved: dic
     
     # Schedule time state
     if state == 'mailing:schedule_time':
-        scheduled = parse_schedule_time(text)
-        if not scheduled:
+        scheduled_utc = parse_schedule_time(text)
+        if not scheduled_utc:
             send_message(chat_id,
-                "❌ Неверный формат. Примеры:\n"
-                "• <code>14:30</code>\n"
-                "• <code>2024-12-25 14:30</code>",
+                "❌ Неверный формат.\n\n"
+                "<b>Примеры:</b>\n"
+                "• <code>02.12.2025 17:00</code>\n"
+                "• <code>15:30</code>\n"
+                "• <code>25.12 14:00</code>",
                 kb_back_cancel()
             )
             return True
         
-        if scheduled <= datetime.utcnow():
+        # Convert back to Moscow for comparison
+        from datetime import timezone
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None) if hasattr(datetime, 'now') else datetime.utcnow()
+        if scheduled_utc <= now_utc:
             send_message(chat_id, "❌ Время должно быть в будущем", kb_back_cancel())
             return True
         
         mailing = DB.create_scheduled_mailing(
             user_id, saved['source_id'], saved['template_id'],
             account_folder_id=saved.get('account_folder_id'),
-            scheduled_at=scheduled,
+            scheduled_at=scheduled_utc,
             use_warm_start=saved.get('use_warm_start', True)
         )
         
         DB.clear_user_state(user_id)
         
         if mailing:
+            # Display in Moscow time
+            scheduled_msk = to_moscow(scheduled_utc)
+            display_time = format_moscow(scheduled_utc, '%d.%m.%Y %H:%M')
             send_message(chat_id,
                 f"✅ <b>Рассылка запланирована!</b>\n\n"
-                f"📅 Дата: {scheduled.strftime('%d.%m.%Y %H:%M')} UTC\n"
-                f"🆔 ID: {mailing['id']}",
+                f"📅 Дата: <b>{display_time}</b> (МСК)\n"
+                f"🆔 ID: #{mailing['id']}",
                 kb_mailing_menu()
             )
         else:
@@ -247,12 +289,14 @@ def handle_mailing(chat_id: int, user_id: int, text: str, state: str, saved: dic
         if task_type:
             saved['task_type'] = task_type
             DB.set_user_state(user_id, 'mailing:scheduler_time', saved)
+            current_time = format_moscow(now_moscow(), '%d.%m.%Y %H:%M')
             send_message(chat_id,
-                "⏰ <b>Время запуска</b>\n\n"
-                "Введите время в формате:\n"
-                "• <code>14:30</code> — ежедневно в это время\n"
-                "• <code>2024-12-25 14:30</code> — один раз\n\n"
-                "⚠️ Время в UTC",
+                f"⏰ <b>Время запуска</b>\n\n"
+                f"Введите время в формате <code>DD.MM.YYYY HH:MM</code>:\n\n"
+                f"<b>Примеры:</b>\n"
+                f"• <code>02.12.2025 17:00</code> — конкретная дата\n"
+                f"• <code>14:30</code> — сегодня/завтра\n\n"
+                f"🕐 <i>Текущее время (МСК): {current_time}</i>",
                 kb_back_cancel()
             )
             return True
@@ -303,10 +347,13 @@ def handle_mailing(chat_id: int, user_id: int, text: str, state: str, saved: dic
             type_names = {'parsing': 'Парсинг', 'mailing': 'Рассылка', 'warmup': 'Прогрев'}
             repeat_names = {'once': 'один раз', 'daily': 'ежедневно', 'weekly': 'еженедельно'}
             
+            # Display in Moscow time
+            display_time = format_moscow(to_moscow(saved['scheduled_at']), '%d.%m.%Y %H:%M')
+            
             send_message(chat_id,
                 f"✅ <b>Задача создана!</b>\n\n"
                 f"📋 Тип: {type_names.get(saved.get('task_type'), saved.get('task_type'))}\n"
-                f"📅 Время: {saved['scheduled_at'].strftime('%d.%m.%Y %H:%M')} UTC\n"
+                f"📅 Время: {display_time} (МСК)\n"
                 f"🔄 Повторение: {repeat_names.get(repeat_mode, repeat_mode)}",
                 kb_mailing_menu()
             )
@@ -408,17 +455,10 @@ def handle_mailing_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
         show_campaign_view(chat_id, user_id, campaign_id)
         return True
     
-    # Scheduled mailing selection/deletion
+    # Scheduled mailing selection - show detailed info
     if data.startswith('schd:'):
         mailing_id = int(data.split(':')[1])
-        mailing = DB._select('scheduled_mailings', filters={'id': mailing_id}, single=True)
-        if mailing:
-            scheduled = mailing.get('scheduled_at', '')[:16].replace('T', ' ')
-            send_message(chat_id, 
-                f"📅 <b>Отложенная рассылка #{mailing_id}</b>\n\n"
-                f"⏰ Запуск: {scheduled} UTC\n"
-                f"📊 Статус: {mailing.get('status', 'pending')}",
-                kb_mailing_menu())
+        show_scheduled_mailing_details(chat_id, user_id, mailing_id)
         return True
     
     if data.startswith('delschd:'):
@@ -773,7 +813,7 @@ def show_campaign_view(chat_id: int, user_id: int, campaign_id: int):
 
 
 def show_scheduled_mailings(chat_id: int, user_id: int):
-    """Show scheduled mailings"""
+    """Show scheduled mailings with Moscow time"""
     mailings = DB.get_scheduled_mailings(user_id)
     pending = [m for m in mailings if m['status'] == 'pending']
     
@@ -782,17 +822,125 @@ def show_scheduled_mailings(chat_id: int, user_id: int):
     if not pending:
         send_message(chat_id,
             "📅 <b>Отложенные рассылки</b>\n\n"
-            "Нет запланированных рассылок.",
+            "Нет запланированных рассылок.\n\n"
+            "Создайте новую рассылку и выберите «📅 Отложить».",
             kb_mailing_menu()
         )
     else:
-        txt = f"📅 <b>Отложенные рассылки ({len(pending)}):</b>\n"
-        for m in pending[:5]:
-            scheduled = m.get('scheduled_at', '')[:16].replace('T', ' ')
-            txt += f"• #{m['id']} | {scheduled} UTC\n"
+        txt = f"📅 <b>Отложенные рассылки ({len(pending)}):</b>\n\n"
+        for m in pending[:10]:
+            # Convert to Moscow time for display
+            scheduled_str = m.get('scheduled_at', '')
+            try:
+                from core.timezone import parse_datetime
+                scheduled_msk = parse_datetime(scheduled_str)
+                if scheduled_msk:
+                    display_time = format_moscow(scheduled_msk, '%d.%m.%Y %H:%M')
+                else:
+                    display_time = scheduled_str[:16].replace('T', ' ')
+            except:
+                display_time = scheduled_str[:16].replace('T', ' ')
+            
+            txt += f"📋 <b>#{m['id']}</b> — {display_time} МСК\n"
         
-        send_message(chat_id, txt, kb_inline_scheduled(pending))
-        send_message(chat_id, "👆 Нажмите 🗑 для отмены", kb_mailing_menu())
+        # Create inline keyboard for scheduled mailings
+        kb = kb_inline_scheduled_detailed(pending)
+        send_message(chat_id, txt, kb)
+        send_message(chat_id, 
+            "👆 Нажмите на рассылку для подробностей\n"
+            "🗑 — отменить рассылку", 
+            kb_mailing_menu()
+        )
+
+
+def kb_inline_scheduled_detailed(mailings: list) -> dict:
+    """Enhanced inline keyboard for scheduled mailings with details"""
+    buttons = []
+    for m in mailings[:10]:
+        # Get scheduled time in Moscow
+        scheduled_str = m.get('scheduled_at', '')
+        try:
+            from core.timezone import parse_datetime
+            scheduled_msk = parse_datetime(scheduled_str)
+            if scheduled_msk:
+                display_time = format_moscow(scheduled_msk, '%d.%m %H:%M')
+            else:
+                display_time = scheduled_str[5:16].replace('T', ' ')
+        except:
+            display_time = scheduled_str[5:16].replace('T', ' ')
+        
+        buttons.append([
+            {'text': f"📅 #{m['id']} — {display_time}", 'callback_data': f"schd:{m['id']}"},
+            {'text': '🗑', 'callback_data': f"delschd:{m['id']}"}
+        ])
+    return inline_keyboard(buttons) if buttons else None
+
+
+def show_scheduled_mailing_details(chat_id: int, user_id: int, mailing_id: int):
+    """Show detailed info for scheduled mailing"""
+    mailing = DB._select('scheduled_mailings', filters={'id': mailing_id}, single=True)
+    
+    if not mailing:
+        send_message(chat_id, "❌ Рассылка не найдена", kb_mailing_menu())
+        return
+    
+    DB.set_user_state(user_id, f'mailing:view_scheduled:{mailing_id}')
+    
+    # Get scheduled time in Moscow
+    scheduled_str = mailing.get('scheduled_at', '')
+    try:
+        from core.timezone import parse_datetime, format_relative
+        scheduled_msk = parse_datetime(scheduled_str)
+        if scheduled_msk:
+            display_time = format_moscow(scheduled_msk, '%d.%m.%Y %H:%M')
+            relative_time = format_relative(scheduled_msk)
+        else:
+            display_time = scheduled_str[:16].replace('T', ' ')
+            relative_time = ""
+    except:
+        display_time = scheduled_str[:16].replace('T', ' ')
+        relative_time = ""
+    
+    # Get source and template info
+    source = DB.get_audience_source(mailing.get('source_id'))
+    template = DB.get_template(mailing.get('template_id'))
+    
+    source_info = source['source_link'] if source else "Не указан"
+    template_info = template['name'] if template else "Не указан"
+    
+    # Get audience stats
+    stats = DB.get_audience_stats(mailing.get('source_id')) if mailing.get('source_id') else {}
+    remaining = stats.get('remaining', 0)
+    
+    # Status emoji
+    status_map = {
+        'pending': '⏳ Ожидает',
+        'running': '🔄 Выполняется',
+        'completed': '✅ Завершена',
+        'cancelled': '🚫 Отменена'
+    }
+    status = status_map.get(mailing.get('status', 'pending'), mailing.get('status'))
+    
+    # Settings
+    warm_start = '✅' if mailing.get('use_warm_start') else '❌'
+    
+    relative_str = f" ({relative_time})" if relative_time else ""
+    
+    send_message(chat_id,
+        f"📅 <b>Отложенная рассылка #{mailing_id}</b>\n\n"
+        f"⏰ <b>Запуск:</b> {display_time} МСК{relative_str}\n"
+        f"📊 <b>Статус:</b> {status}\n\n"
+        f"<b>Параметры:</b>\n"
+        f"├ 📊 Аудитория: {source_info}\n"
+        f"├ 👥 Получателей: {remaining}\n"
+        f"├ 📝 Шаблон: {template_info}\n"
+        f"└ 🔥 Тёплый старт: {warm_start}\n\n"
+        f"<i>Рассылка запустится автоматически в указанное время.</i>",
+        reply_keyboard([
+            ['🗑 Отменить'],
+            ['◀️ К списку', '◀️ Главное меню']
+        ])
+    )
 
 
 def show_scheduler_menu(chat_id: int, user_id: int):
@@ -800,15 +948,36 @@ def show_scheduler_menu(chat_id: int, user_id: int):
     DB.set_user_state(user_id, 'mailing:scheduler')
     
     tasks = DB.get_scheduled_tasks(user_id, status='pending')
+    current_time = format_moscow(now_moscow(), '%d.%m.%Y %H:%M')
+    
+    # Get upcoming tasks
+    upcoming = ""
+    type_emoji = {'parsing': '🔍', 'mailing': '📤', 'warmup': '🔥'}
+    for t in tasks[:3]:
+        emoji = type_emoji.get(t.get('task_type'), '📋')
+        try:
+            scheduled_utc = datetime.fromisoformat(t.get('scheduled_at', '').replace('Z', '+00:00'))
+            scheduled_msk = to_moscow(scheduled_utc)
+            scheduled_str = format_moscow(scheduled_msk, '%d.%m %H:%M')
+        except:
+            scheduled_str = t.get('scheduled_at', '')[:16]
+        repeat = ' 🔄' if t.get('repeat_mode') != 'once' else ''
+        upcoming += f"{emoji} #{t['id']} → {scheduled_str}{repeat}\n"
+    
+    if not upcoming:
+        upcoming = "<i>Нет запланированных задач</i>\n"
     
     send_message(chat_id,
         f"⏰ <b>Планировщик задач</b>\n\n"
-        f"📋 Активных задач: <b>{len(tasks)}</b>\n\n"
-        f"Планировщик позволяет:\n"
-        f"• Запускать парсинг по расписанию\n"
-        f"• Автоматически запускать рассылки\n"
-        f"• Планировать прогрев аккаунтов\n\n"
-        f"<i>Задачи выполняются в указанное время (UTC)</i>",
+        f"📋 Активных задач: <b>{len(tasks)}</b>\n"
+        f"🕐 Текущее время: <b>{current_time}</b> (МСК)\n\n"
+        f"<b>Ближайшие задачи:</b>\n{upcoming}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>Возможности планировщика:</b>\n"
+        f"• 🔍 Автоматический парсинг\n"
+        f"• 📤 Рассылки по расписанию\n"
+        f"• 🔥 Прогрев аккаунтов\n\n"
+        f"💡 <i>Все задачи выполняются по московскому времени</i>",
         kb_scheduler_menu()
     )
 
@@ -821,48 +990,72 @@ def show_scheduled_tasks(chat_id: int, user_id: int):
     if not pending:
         send_message(chat_id,
             "⏰ <b>Задачи планировщика</b>\n\n"
-            "Нет активных задач.",
+            "Нет активных задач.\n\n"
+            "Создайте задачу через «➕ Новая задача»",
             kb_scheduler_menu()
         )
     else:
         txt = f"⏰ <b>Задачи планировщика ({len(pending)}):</b>\n\n"
         type_emoji = {'parsing': '🔍', 'mailing': '📤', 'warmup': '🔥'}
+        type_names = {'parsing': 'Парсинг', 'mailing': 'Рассылка', 'warmup': 'Прогрев'}
+        repeat_names = {'once': '', 'daily': '📅', 'weekly': '📆'}
         
         for t in pending[:10]:
             emoji = type_emoji.get(t.get('task_type'), '📋')
-            scheduled = t.get('scheduled_at', '')[:16].replace('T', ' ')
-            repeat = '🔄' if t.get('repeat_mode') != 'once' else ''
-            txt += f"{emoji}{repeat} #{t['id']} | {scheduled} UTC\n"
+            task_name = type_names.get(t.get('task_type'), t.get('task_type', ''))
+            
+            # Convert to Moscow time
+            try:
+                scheduled_utc = datetime.fromisoformat(t.get('scheduled_at', '').replace('Z', '+00:00'))
+                scheduled_msk = to_moscow(scheduled_utc)
+                scheduled_str = format_moscow(scheduled_msk, '%d.%m.%Y %H:%M')
+            except:
+                scheduled_str = t.get('scheduled_at', '')[:16]
+            
+            repeat = repeat_names.get(t.get('repeat_mode', 'once'), '')
+            txt += f"{emoji} <b>#{t['id']}</b> {task_name} {repeat}\n"
+            txt += f"   └ 🕐 {scheduled_str} МСК\n"
         
         send_message(chat_id, txt, kb_inline_scheduled_tasks(pending))
-        send_message(chat_id, "👆 Нажмите 🗑 для удаления", kb_scheduler_menu())
+        send_message(chat_id, "👆 Нажмите 🗑 для удаления задачи", kb_scheduler_menu())
 
 
 def parse_schedule_time(text: str) -> datetime:
-    """Parse schedule time from text"""
+    """
+    Parse schedule time from text (Moscow timezone).
+    Returns datetime in UTC for storage.
+    """
     text_clean = text.strip()
-    now = datetime.utcnow()
+    now = now_moscow()
     
     try:
-        # Format: HH:MM
+        # Format: HH:MM (today/tomorrow in Moscow)
         if re.match(r'^\d{1,2}:\d{2}$', text_clean):
             h, m = map(int, text_clean.split(':'))
             if h > 23 or m > 59:
                 return None
-            scheduled = now.replace(hour=h, minute=m, second=0, microsecond=0)
-            if scheduled <= now:
-                scheduled += timedelta(days=1)
-            return scheduled
+            scheduled_msk = now.replace(hour=h, minute=m, second=0, microsecond=0)
+            if scheduled_msk <= now:
+                scheduled_msk += timedelta(days=1)
+            # Convert to UTC for storage
+            return from_moscow_to_utc(scheduled_msk)
         
-        # Format: YYYY-MM-DD HH:MM
+        # Format: DD.MM.YYYY HH:MM (primary format)
+        if re.match(r'^\d{1,2}\.\d{1,2}\.\d{4}\s+\d{1,2}:\d{2}$', text_clean):
+            scheduled_msk = datetime.strptime(text_clean, '%d.%m.%Y %H:%M')
+            return from_moscow_to_utc(scheduled_msk)
+        
+        # Format: DD.MM HH:MM (current year)
+        if re.match(r'^\d{1,2}\.\d{1,2}\s+\d{1,2}:\d{2}$', text_clean):
+            scheduled_msk = datetime.strptime(f"{text_clean} {now.year}", '%d.%m %H:%M %Y')
+            return from_moscow_to_utc(scheduled_msk)
+        
+        # Format: YYYY-MM-DD HH:MM (ISO format, also accepted)
         if re.match(r'^\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}$', text_clean):
-            return datetime.strptime(text_clean, '%Y-%m-%d %H:%M')
+            scheduled_msk = datetime.strptime(text_clean, '%Y-%m-%d %H:%M')
+            return from_moscow_to_utc(scheduled_msk)
         
-        # Format: DD.MM.YYYY HH:MM
-        if re.match(r'^\d{1,2}\.\d{2}\.\d{4}\s+\d{1,2}:\d{2}$', text_clean):
-            return datetime.strptime(text_clean, '%d.%m.%Y %H:%M')
-        
-    except:
-        pass
+    except Exception as e:
+        logger.error(f"parse_schedule_time error: {e}")
     
     return None
