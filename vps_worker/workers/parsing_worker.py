@@ -76,11 +76,19 @@ class ParsingWorker(BaseWorker):
             db.update_parsing_task(task_id, status='error', error='Invalid source link')
             return
         
-        # Parse based on task type
-        if task_type == 'comments':
+        # Get source_type (may differ from task_type)
+        source_type = task.get('source_type', task_type)
+        
+        # Parse based on type
+        if source_type in ('comments', 'post_comments'):
             await self._parse_comments(task, account, channel)
-        else:
+        elif source_type in ('messages', 'chat_messages', 'active_users'):
+            await self._parse_messages(task, account, channel)
+        elif source_type in ('participants', 'members', 'subscribers'):
             await self._parse_participants(task, account, channel)
+        else:
+            # Default: try messages first (most common use case), fallback to participants
+            await self._parse_messages(task, account, channel)
     
     async def _parse_participants(self, task: dict, account: dict, channel: str):
         """Parse channel/chat participants with filters"""
@@ -169,6 +177,124 @@ class ParsingWorker(BaseWorker):
         
         await notifier.notify_parsing_completed(source_id or task_id, total_parsed, channel)
         self.logger.info(f"Parsed {total_parsed} from {channel}")
+    
+    async def _parse_messages(self, task: dict, account: dict, channel: str):
+        """
+        Parse users from chat messages.
+        
+        Reads last N messages from chat and collects unique users who wrote them.
+        Supports keyword filtering for semantic parsing.
+        """
+        task_id = task['id']
+        source_id = task.get('source_id') or task['id']
+        phone = account['phone']
+        account_id = account['id']
+        
+        # Get limits and filters
+        message_limit = task.get('limit', 1000)  # Default 1000 messages
+        filters = task.get('filters', {})
+        only_with_username = filters.get('only_with_username', False)
+        only_with_photo = filters.get('only_with_photo', False)
+        exclude_bots = filters.get('exclude_bots', True)
+        keywords = filters.get('keywords', [])  # List of keywords for semantic filtering
+        
+        self.logger.info(f"Parsing message authors from {channel} (last {message_limit} messages)")
+        
+        # Get client
+        from services.telegram_client import client_manager
+        client = await client_manager.get_client(account_id, phone)
+        if not client:
+            db.update_parsing_task(task_id, status='error', error='Client not available')
+            return
+        
+        try:
+            # Get chat entity
+            chat_entity = await client.get_entity(channel)
+            
+            # Collect unique users from messages
+            users_collected = {}  # telegram_id -> user data
+            messages_processed = 0
+            keyword_matches = 0
+            
+            # Iterate through messages
+            async for message in client.iter_messages(chat_entity, limit=message_limit):
+                messages_processed += 1
+                
+                # Skip messages without sender
+                if not message.sender:
+                    continue
+                
+                sender = message.sender
+                
+                # Skip deleted users
+                if hasattr(sender, 'deleted') and sender.deleted:
+                    continue
+                
+                # Skip if not a User (could be Channel forwarding)
+                if not hasattr(sender, 'bot'):
+                    continue
+                
+                # Keyword filtering (semantic parsing)
+                if keywords and message.text:
+                    text_lower = message.text.lower()
+                    keyword_found = any(kw.lower() in text_lower for kw in keywords)
+                    if not keyword_found:
+                        continue
+                    keyword_matches += 1
+                
+                # Apply filters
+                if exclude_bots and sender.bot:
+                    continue
+                
+                if only_with_username and not sender.username:
+                    continue
+                
+                if only_with_photo and not sender.photo:
+                    continue
+                
+                # Add user if not already collected
+                if sender.id not in users_collected:
+                    users_collected[sender.id] = {
+                        'telegram_id': sender.id,
+                        'tg_user_id': sender.id,
+                        'username': sender.username,
+                        'first_name': sender.first_name,
+                        'last_name': sender.last_name,
+                        'is_premium': getattr(sender, 'premium', False),
+                        'is_bot': sender.bot or False,
+                        'has_photo': sender.photo is not None
+                    }
+                
+                # Progress log every 200 messages
+                if messages_processed % 200 == 0:
+                    self.logger.info(f"Processed {messages_processed} messages, found {len(users_collected)} unique users")
+            
+            filtered_users = list(users_collected.values())
+            
+            if keywords:
+                self.logger.info(f"Keyword matches: {keyword_matches} messages with keywords")
+            
+            self.logger.info(f"Processed {messages_processed} messages, found {len(filtered_users)} unique users")
+            
+            # Save users to database
+            total_parsed = 0
+            if source_id and filtered_users:
+                total_parsed = db.add_audience_users(source_id, filtered_users)
+            else:
+                total_parsed = len(filtered_users)
+            
+            # Complete
+            db.update_parsing_task(task_id, status='completed', parsed_count=total_parsed)
+            
+            if source_id:
+                db.update_audience_source(source_id, status='completed', total_count=total_parsed)
+            
+            await notifier.notify_parsing_completed(source_id or task_id, total_parsed, f"сообщения {channel}")
+            self.logger.info(f"Message parsing completed: {total_parsed} users from {channel}")
+            
+        except Exception as e:
+            self.logger.error(f"Error parsing messages: {e}")
+            db.update_parsing_task(task_id, status='error', error=str(e))
     
     async def _parse_comments(self, task: dict, account: dict, channel: str):
         """Parse users from post comments"""
