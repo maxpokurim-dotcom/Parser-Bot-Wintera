@@ -708,10 +708,11 @@ def kb_ai_settings():
         ['◀️ Назад']
     ])
 
-def kb_api_keys():
+def kb_api_keys(has_yagpt_key: bool = False):
     """API keys settings"""
+    yagpt_button = '✏️ Изменить Yandex GPT' if has_yagpt_key else '🔑 Yandex GPT'
     return reply_keyboard([
-        ['🔑 Yandex GPT', '🧠 Выбор модели'],
+        [yagpt_button, '🧠 Выбор модели'],
         ['📱 OnlineSim', '🌐 Прокси'],
         ['◀️ Назад']
     ])
