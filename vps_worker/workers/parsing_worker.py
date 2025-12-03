@@ -289,15 +289,18 @@ class ParsingWorker(BaseWorker):
                 }
                 
                 # Semantic mode: collect messages for batch analysis
-                if use_semantic and message.text:
-                    messages_for_analysis.append({
-                        'id': message.id,
-                        'text': message.text
-                    })
-                    message_senders[message.id] = user_data
+                if use_semantic:
+                    if message.text:
+                        messages_for_analysis.append({
+                            'id': message.id,
+                            'text': message.text
+                        })
+                        message_senders[message.id] = user_data
+                    # Skip messages without text in semantic mode
+                    continue
                 
                 # Keyword mode: filter locally
-                elif keywords:
+                if keywords:
                     if not message.text:
                         continue
                     
