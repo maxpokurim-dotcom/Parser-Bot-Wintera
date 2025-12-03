@@ -87,7 +87,8 @@ class SchedulerWorker(BaseWorker):
         
         # Create campaign
         campaign_data = {
-            'user_id': user_id,
+            'owner_id': user_id,  # Use owner_id to match database schema
+            'user_id': user_id,  # Also include user_id for compatibility
             'source_id': source_id,
             'template_id': template_id,
             'account_ids': account_ids,
@@ -105,20 +106,43 @@ class SchedulerWorker(BaseWorker):
             'created_at': datetime.utcnow().isoformat()
         }
         
-        # Insert campaign (simplified - actual would use db method)
-        # For now, we mark the scheduled mailing as launched
-        db.update_scheduled_mailing(
-            mailing_id,
-            status='launched',
-            launched_at=datetime.utcnow().isoformat()
-        )
-        
-        self.logger.info(f"Scheduled mailing {mailing_id} launched")
-        await notifier.send_message(
-            f"📅 <b>Запланированная рассылка запущена</b>\n\n"
-            f"🆔 ID: {mailing_id}\n"
-            f"👤 Аккаунтов: {len(account_ids)}"
-        )
+        # Insert campaign into database
+        try:
+            campaign_result = db.client.table('campaigns').insert(campaign_data).execute()
+            if not campaign_result.data:
+                self.logger.error(f"Failed to create campaign for scheduled mailing {mailing_id}")
+                db.update_scheduled_mailing(
+                    mailing_id,
+                    status='error',
+                    error='Failed to create campaign'
+                )
+                return
+            
+            campaign_id = campaign_result.data[0]['id']
+            self.logger.info(f"Created campaign {campaign_id} for scheduled mailing {mailing_id}")
+            
+            # Mark scheduled mailing as launched
+            db.update_scheduled_mailing(
+                mailing_id,
+                status='launched',
+                launched_at=datetime.utcnow().isoformat(),
+                campaign_id=campaign_id
+            )
+            
+            self.logger.info(f"Scheduled mailing {mailing_id} launched as campaign {campaign_id}")
+            await notifier.send_message(
+                f"📅 <b>Запланированная рассылка запущена</b>\n\n"
+                f"🆔 ID рассылки: {mailing_id}\n"
+                f"📊 ID кампании: {campaign_id}\n"
+                f"👤 Аккаунтов: {len(account_ids)}"
+            )
+        except Exception as e:
+            self.logger.error(f"Error creating campaign for scheduled mailing {mailing_id}: {e}", exc_info=True)
+            db.update_scheduled_mailing(
+                mailing_id,
+                status='error',
+                error=f'Failed to create campaign: {str(e)}'
+            )
     
     async def _process_scheduled_tasks(self):
         """Process scheduled tasks (parsing, warmup, etc.)"""
