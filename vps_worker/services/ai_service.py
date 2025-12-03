@@ -102,6 +102,11 @@ class YandexGPT:
         if not model:
             model = 'yandexgpt-5-lite'  # Default fallback
         
+        # Remove /latest suffix if already present (avoid duplication)
+        model = model.rstrip('/')
+        if model.endswith('/latest'):
+            model = model[:-7]  # Remove '/latest'
+        
         uri = f"gpt://{self.folder_id}/{model}/latest"
         logger.debug(f"Model URI: {uri}")
         return uri
