@@ -947,9 +947,9 @@ def show_api_keys(chat_id: int, user_id: int):
     yagpt_preview = f"...{yagpt_key[-8:]}" if yagpt_key and len(yagpt_key) > 8 else ''
     
     # Model selection
-yagpt_model = settings.get('yandex_gpt_model')
-if not yagpt_model or not isinstance(yagpt_model, str):
-    yagpt_model = 'yandexgpt-5-lite'
+    yagpt_model = settings.get('yandex_gpt_model')
+    if not yagpt_model or not isinstance(yagpt_model, str):
+        yagpt_model = 'yandexgpt-5-lite'
     model_names = {
         'aliceai-llm/latest': '🆕 Alice AI LLM',
         'yandexgpt-5.1/latest': 'YandexGPT 5.1 Pro',
@@ -1191,4 +1191,5 @@ def _handle_yagpt_model_selection(chat_id: int, user_id: int, text: str, saved: 
         return True
     
     return False
+
 
