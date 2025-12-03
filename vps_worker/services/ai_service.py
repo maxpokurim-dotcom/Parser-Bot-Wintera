@@ -51,11 +51,16 @@ class AIConfig:
     
     @classmethod
     def from_env(cls) -> "AIConfig":
+        """
+        Load config from environment.
+        Note: Model is typically loaded from user_settings in database,
+        not from .env. The .env values are fallback defaults.
+        """
         return cls(
             yandex_folder_id=os.getenv('YANDEX_CLOUD_FOLDER_ID', ''),
             yandex_api_key=os.getenv('YANDEX_CLOUD_API_KEY', ''),
             yandex_iam_token=os.getenv('YANDEX_CLOUD_IAM_TOKEN', ''),
-            yandex_model=os.getenv('YANDEX_GPT_MODEL', 'yandexgpt-5-lite'),
+            yandex_model='yandexgpt-5-lite',  # Default, overridden by user_settings
             openai_api_key=os.getenv('OPENAI_API_KEY', ''),
             openai_model=os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),
         )
