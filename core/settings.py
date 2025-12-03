@@ -204,7 +204,7 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
             show_automation_submenu(chat_id, user_id)
         # API keys back to main settings
         elif state in ['settings:api_keys', 'settings:api:yagpt', 'settings:api:yagpt_folder', 
-                       'settings:api:onlinesim', 'settings:api:model', 'settings:notifications']:
+                       'settings:api:onlinesim', 'settings:api:model', 'settings:api:yagpt_model', 'settings:notifications']:
             show_settings_menu(chat_id, user_id)
         else:
             show_settings_menu(chat_id, user_id)
@@ -486,6 +486,8 @@ def handle_settings(chat_id: int, user_id: int, text: str, state: str, saved: di
         return _handle_api_onlinesim(chat_id, user_id, text, saved)
     if state == 'settings:api:model':
         return _handle_model_selection(chat_id, user_id, text, saved)
+    if state == 'settings:api:yagpt_model':
+        return _handle_yagpt_model_selection(chat_id, user_id, text, saved)
 
     return False
 
@@ -947,14 +949,24 @@ def show_api_keys(chat_id: int, user_id: int):
     # Model selection
     yagpt_model = settings.get('yandex_gpt_model', 'yandexgpt-5-lite')
     model_names = {
-        'aliceai-llm': '🆕 Alice AI LLM',
+        'aliceai-llm/latest': '🆕 Alice AI LLM',
+        'yandexgpt-5.1/latest': 'YandexGPT 5.1 Pro',
+        'yandexgpt-5-pro/latest': 'YandexGPT 5 Pro',
+        'yandexgpt-5-lite/latest': 'YandexGPT 5 Lite',
+        'yandexgpt-4-lite/latest': 'YandexGPT 4 Lite',
+        'aliceai-llm': '🆕 Alice AI LLM',  # Legacy support
         'yandexgpt-5.1': 'YandexGPT 5.1 Pro',
         'yandexgpt-5-pro': 'YandexGPT 5 Pro',
         'yandexgpt-5-lite': 'YandexGPT 5 Lite',
         'yandexgpt-4-lite': 'YandexGPT 4 Lite',
         'yandexgpt-lite': 'YandexGPT Lite (legacy)',
     }
+    # Normalize model name for display
     model_display = model_names.get(yagpt_model, yagpt_model)
+    if not model_display or model_display == yagpt_model:
+        # Try without /latest suffix
+        model_base = yagpt_model.replace('/latest', '')
+        model_display = model_names.get(model_base, yagpt_model)
     
     onlinesim_key = settings.get('onlinesim_api_key')
     onlinesim_status = '✅ Настроен' if onlinesim_key else '❌ Не настроен'
@@ -966,12 +978,12 @@ def show_api_keys(chat_id: int, user_id: int):
         f"<b>📱 OnlineSim:</b> {onlinesim_status}\n"
         f"   Для автоматического создания аккаунтов\n\n"
         f"<b>🌐 Прокси:</b> (в разработке)",
-        kb_api_keys()
+        kb_api_keys(has_yagpt_key=bool(yagpt_key))
     )
 
 def _handle_api_keys(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle API keys menu"""
-    if text == '🔑 Yandex GPT':
+    if text == '🔑 Yandex GPT' or text == '✏️ Изменить Yandex GPT':
         DB.set_user_state(user_id, 'settings:api:yagpt', {})
         send_message(chat_id,
             "🔑 <b>Настройка Yandex GPT</b>\n"
@@ -996,12 +1008,14 @@ def _handle_api_keys(chat_id: int, user_id: int, text: str, saved: dict) -> bool
         )
         return True
     if text == '🌐 Прокси':
+        settings = DB.get_user_settings(user_id)
+        yagpt_key = settings.get('yagpt_api_key')
         send_message(chat_id,
             "🌐 <b>Прокси</b>\n"
             "Функция управления прокси в разработке.\n"
             "Пока вы можете добавлять прокси вручную\n"
             "при создании аккаунтов.",
-            kb_api_keys()
+            kb_api_keys(has_yagpt_key=bool(yagpt_key))
         )
         return True
     return False
@@ -1028,20 +1042,19 @@ def _handle_api_yagpt_folder(chat_id: int, user_id: int, text: str, saved: dict)
     if len(folder_id) < 10:
         send_message(chat_id, "❌ Неверный формат Folder ID", kb_back_cancel())
         return True
-    # Save both
-    DB.update_user_settings(user_id, 
-        yagpt_api_key=saved.get('yagpt_key'),
-        yagpt_folder_id=folder_id
-    )
+    # Save folder, then ask for model selection
+    saved['yagpt_folder'] = folder_id
+    DB.set_user_state(user_id, 'settings:api:yagpt_model', saved)
     send_message(chat_id,
-        "✅ <b>Yandex GPT настроен!</b>\n"
-        "Теперь доступны:\n"
-        "• Генерация комментариев в Ботоводе\n"
-        "• Генерация постов в Контент-менеджере\n"
-        "• Анализ трендов и эмоций",
-        kb_api_keys()
+        "✅ API ключ и Folder ID приняты!\n\n"
+        "Теперь выберите модель GPT:\n\n"
+        "🆕 <b>Alice AI LLM</b> — новейшая, лучшее качество\n"
+        "📊 <b>YandexGPT 5.1 Pro</b> — продвинутая\n"
+        "📊 <b>YandexGPT 5 Pro</b> — высокое качество\n"
+        "⚡ <b>YandexGPT 5 Lite</b> — быстрая, экономичная\n"
+        "📦 <b>YandexGPT 4 Lite</b> — предыдущее поколение",
+        kb_yandex_models()
     )
-    show_api_keys(chat_id, user_id)
     return True
 
 def _handle_api_onlinesim(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
@@ -1065,11 +1078,13 @@ def _handle_api_onlinesim(chat_id: int, user_id: int, text: str, saved: dict) ->
 # ==================== YANDEX MODEL SELECTION ====================
 
 def show_model_selection(chat_id: int, user_id: int):
-    """Show Yandex GPT model selection"""
+    """Show Yandex GPT model selection (standalone)"""
     DB.set_user_state(user_id, 'settings:api:model', {})
     settings = DB.get_user_settings(user_id)
-    current = settings.get('yandex_gpt_model', 'yandexgpt-5-lite')
+    current = settings.get('yandex_gpt_model', 'yandexgpt-5-lite/latest')
     
+    # Normalize model name for display
+    model_base = current.replace('/latest', '') if '/latest' in current else current
     model_info = {
         'aliceai-llm': ('🆕 Alice AI LLM', 'Новейшая модель, лучшее качество'),
         'yandexgpt-5.1': ('YandexGPT 5.1 Pro', 'Продвинутая Pro-версия'),
@@ -1078,7 +1093,7 @@ def show_model_selection(chat_id: int, user_id: int):
         'yandexgpt-4-lite': ('YandexGPT 4 Lite', 'Предыдущее поколение'),
     }
     
-    current_name, current_desc = model_info.get(current, (current, ''))
+    current_name, current_desc = model_info.get(model_base, (current, ''))
     
     send_message(chat_id,
         f"🧠 <b>Выбор модели YandexGPT</b>\n\n"
@@ -1089,7 +1104,7 @@ def show_model_selection(chat_id: int, user_id: int):
         f"📊 <b>YandexGPT 5.1 Pro</b> — продвинутая\n"
         f"📊 <b>YandexGPT 5 Pro</b> — высокое качество\n"
         f"⚡ <b>YandexGPT 5 Lite</b> — быстрая, экономичная\n"
-        f"📦 <b>YandexGPT 4 Lite</b> — legacy\n\n"
+        f"📦 <b>YandexGPT 4 Lite</b> — предыдущее поколение\n\n"
         f"💡 Модель используется для семантического парсинга,\n"
         f"генерации комментариев и контента.",
         kb_yandex_models()
@@ -1097,18 +1112,20 @@ def show_model_selection(chat_id: int, user_id: int):
 
 
 def _handle_model_selection(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle Yandex model selection"""
+    """Handle Yandex model selection (standalone, without key/folder change)"""
     model_map = {
-        '🆕 Alice AI LLM': 'aliceai-llm',
-        'YandexGPT 5.1 Pro': 'yandexgpt-5.1',
-        'YandexGPT 5 Pro': 'yandexgpt-5-pro',
-        'YandexGPT 5 Lite': 'yandexgpt-5-lite',
-        'YandexGPT 4 Lite': 'yandexgpt-4-lite',
+        '🆕 Alice AI LLM': 'aliceai-llm/latest',
+        'YandexGPT 5.1 Pro': 'yandexgpt-5.1/latest',
+        'YandexGPT 5 Pro': 'yandexgpt-5-pro/latest',
+        'YandexGPT 5 Lite': 'yandexgpt-5-lite/latest',
+        'YandexGPT 4 Lite': 'yandexgpt-4-lite/latest',
     }
     
     if text in model_map:
         model_id = model_map[text]
         DB.update_user_settings(user_id, yandex_gpt_model=model_id)
+        settings = DB.get_user_settings(user_id)
+        yagpt_key = settings.get('yagpt_api_key')
         send_message(chat_id,
             f"✅ <b>Модель изменена!</b>\n\n"
             f"Выбрана: <b>{text}</b>\n\n"
@@ -1116,13 +1133,59 @@ def _handle_model_selection(chat_id: int, user_id: int, text: str, saved: dict) 
             f"• Семантического парсинга\n"
             f"• Генерации комментариев\n"
             f"• Создания контента",
-            kb_api_keys()
+            kb_api_keys(has_yagpt_key=bool(yagpt_key))
         )
         show_api_keys(chat_id, user_id)
         return True
     
     if text == '◀️ Назад':
         show_api_keys(chat_id, user_id)
+        return True
+    
+    return False
+
+def _handle_yagpt_model_selection(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle Yandex model selection during initial setup or change"""
+    model_map = {
+        '🆕 Alice AI LLM': 'aliceai-llm/latest',
+        'YandexGPT 5.1 Pro': 'yandexgpt-5.1/latest',
+        'YandexGPT 5 Pro': 'yandexgpt-5-pro/latest',
+        'YandexGPT 5 Lite': 'yandexgpt-5-lite/latest',
+        'YandexGPT 4 Lite': 'yandexgpt-4-lite/latest',
+    }
+    
+    if text in model_map:
+        model_id = model_map[text]
+        # Save all: key, folder, and model
+        DB.update_user_settings(user_id, 
+            yagpt_api_key=saved.get('yagpt_key'),
+            yagpt_folder_id=saved.get('yagpt_folder'),
+            yandex_gpt_model=model_id
+        )
+        send_message(chat_id,
+            f"✅ <b>Yandex GPT полностью настроен!</b>\n\n"
+            f"API ключ: ✅\n"
+            f"Folder ID: ✅\n"
+            f"Модель: <b>{text}</b>\n\n"
+            f"Теперь доступны:\n"
+            f"• Генерация комментариев в Ботоводе\n"
+            f"• Генерация постов в Контент-менеджере\n"
+            f"• Семантический парсинг\n"
+            f"• Анализ трендов и эмоций",
+            kb_api_keys(has_yagpt_key=True)
+        )
+        show_api_keys(chat_id, user_id)
+        return True
+    
+    if text == '◀️ Назад':
+        # Go back to folder input
+        DB.set_user_state(user_id, 'settings:api:yagpt_folder', saved)
+        send_message(chat_id,
+            "Введите <b>Folder ID</b> из Yandex Cloud:\n"
+            "Найти: https://console.cloud.yandex.ru/\n"
+            "Раздел: Каталог → ID",
+            kb_back_cancel()
+        )
         return True
     
     return False
