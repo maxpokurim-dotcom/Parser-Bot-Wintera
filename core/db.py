@@ -246,6 +246,7 @@ class DB:
             'gpt_temperature': 0.7,
             'yagpt_api_key': None,
             'yagpt_folder_id': None,
+            'yandex_gpt_model': None,
             'onlinesim_api_key': None,
             'herder_settings': {
                 'default_strategy': 'observer',
