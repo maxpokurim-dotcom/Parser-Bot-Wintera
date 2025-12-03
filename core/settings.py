@@ -13,6 +13,7 @@ from core.keyboards import (
     kb_cache_ttl, kb_auto_blacklist, kb_warmup_settings, kb_risk_tolerance,
     kb_ai_settings, kb_api_keys, kb_gpt_temperature,
     kb_stop_triggers_menu, kb_inline_stop_triggers,
+    kb_yandex_models,
     reply_keyboard
 )
 from core.menu import show_main_menu, BTN_CANCEL, BTN_BACK, BTN_MAIN_MENU
@@ -1065,7 +1066,6 @@ def _handle_api_onlinesim(chat_id: int, user_id: int, text: str, saved: dict) ->
 
 def show_model_selection(chat_id: int, user_id: int):
     """Show Yandex GPT model selection"""
-    from core.keyboards import kb_yandex_models
     DB.set_user_state(user_id, 'settings:api:model', {})
     settings = DB.get_user_settings(user_id)
     current = settings.get('yandex_gpt_model', 'yandexgpt-5-lite')

@@ -400,7 +400,7 @@ class ParsingWorker(BaseWorker):
             db.update_parsing_task(task_id, status='error', error=str(e))
     
     async def _setup_ai_model(self, user_id: int):
-        """Load user's AI model preference from database"""
+        """Load user's AI credentials and model preference from database"""
         try:
             if not user_id:
                 return
@@ -410,13 +410,25 @@ class ParsingWorker(BaseWorker):
             if not settings:
                 return
             
+            from services.ai_service import ai_service
+            
+            # Load API credentials from user settings (override .env)
+            api_key = settings.get('yagpt_api_key')
+            folder_id = settings.get('yagpt_folder_id')
+            
+            if api_key and folder_id:
+                ai_service.yandex.api_key = api_key
+                ai_service.yandex.folder_id = folder_id
+                self.logger.info(f"Using user's YandexGPT API credentials")
+            
+            # Load model preference
             yandex_model = settings.get('yandex_gpt_model')
             if yandex_model:
-                from services.ai_service import ai_service
                 ai_service.set_yandex_model(yandex_model)
                 self.logger.info(f"Using AI model: {yandex_model}")
+                
         except Exception as e:
-            self.logger.warning(f"Could not load AI model preference: {e}")
+            self.logger.warning(f"Could not load AI settings: {e}")
     
     async def _parse_comments(self, task: dict, account: dict, channel: str):
         """Parse users from post comments"""

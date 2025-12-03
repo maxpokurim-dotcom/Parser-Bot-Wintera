@@ -551,6 +551,12 @@ class AIService:
         """Set YandexGPT model"""
         self.yandex.set_model(model)
     
+    def set_yandex_credentials(self, api_key: str, folder_id: str):
+        """Set YandexGPT API credentials (override .env)"""
+        self.yandex.api_key = api_key
+        self.yandex.folder_id = folder_id
+        logger.info(f"YandexGPT credentials updated (folder: {folder_id[:8]}...)")
+    
     async def analyze_messages_semantic(
         self,
         messages: List[Dict],
