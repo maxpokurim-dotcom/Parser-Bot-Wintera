@@ -357,6 +357,23 @@ def _handle_gen_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> b
             channel_id=saved.get('channel_id')
         )
         if task:
+            # Create VPS task for content generation
+            vps_task = {
+                'task_type': 'content_generate',
+                'task_data': {
+                    'topic': saved['topic'],
+                    'style': saved['style'],
+                    'length': saved['length'],
+                    'include_emoji': True,
+                    'content_type': 'post',
+                    'title': saved.get('topic', 'Без названия')[:100],
+                    'channel_id': saved.get('channel_id'),
+                    'use_trends': saved.get('use_trends', False),
+                    'generated_content_id': task['id']  # Link to generated_content
+                }
+            }
+            DB.create_vps_task(user_id, 'content_generate', vps_task)
+            
             send_message(chat_id,
                 f"✅ <b>Задача создана!</b>\n"
                 f"🆔 ID: #{task['id']}\n"
@@ -431,6 +448,19 @@ def _handle_trend_confirm(chat_id: int, user_id: int, text: str, saved: dict) ->
             channel_id=saved['channel_id']
         )
         if task:
+            # Create VPS task for trend analysis
+            channel = DB.get_user_channel(saved['channel_id'])
+            vps_task = {
+                'task_type': 'trend_analysis',
+                'task_data': {
+                    'channel_username': channel['channel_username'] if channel else None,
+                    'channel_id': saved['channel_id'],
+                    'posts_count': 100,
+                    'niche': saved.get('niche', 'general')
+                }
+            }
+            DB.create_vps_task(user_id, 'trend_analysis', vps_task)
+            
             send_message(chat_id,
                 f"✅ <b>Анализ запущен!</b>\n"
                 f"🆔 ID: #{task['id']}\n"
@@ -517,6 +547,23 @@ def _handle_summary_confirm(chat_id: int, user_id: int, text: str, saved: dict) 
             channel_id=saved['channel_id']
         )
         if content:
+            # Create VPS task for discussion summary
+            channel = DB.get_user_channel(saved['channel_id'])
+            # For summary, we need to analyze recent posts - get most recent post
+            # In real implementation, user should select specific post
+            # For now, we'll analyze recent posts from channel
+            vps_task = {
+                'task_type': 'discussion_summary',
+                'task_data': {
+                    'channel_username': channel['channel_username'] if channel else None,
+                    'channel_id': saved['channel_id'],
+                    'post_id': None,  # Will analyze recent posts if None
+                    'comments_count': 50,
+                    'period_days': saved['period_days']
+                }
+            }
+            DB.create_vps_task(user_id, 'discussion_summary', vps_task)
+            
             send_message(chat_id,
                 f"✅ <b>Задача создана!</b>\n"
                 f"Результат появится в разделе «Сгенерированные»",
