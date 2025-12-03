@@ -89,10 +89,22 @@ class YandexGPT:
     def _get_model_uri(self, model_override: Optional[str] = None) -> str:
         """Get model URI"""
         model = model_override or self.model
+        
         # If already a full URI, return as is
-        if model.startswith('gpt://'):
+        if model and model.startswith('gpt://'):
             return model
-        return f"gpt://{self.folder_id}/{model}/latest"
+        
+        # Validate we have required components
+        if not self.folder_id:
+            logger.error("YandexGPT: folder_id is not set!")
+            return ""
+        
+        if not model:
+            model = 'yandexgpt-5-lite'  # Default fallback
+        
+        uri = f"gpt://{self.folder_id}/{model}/latest"
+        logger.debug(f"Model URI: {uri}")
+        return uri
     
     def set_model(self, model: str):
         """Set the model to use"""
@@ -131,8 +143,14 @@ class YandexGPT:
             "text": prompt
         })
         
+        model_uri = self._get_model_uri()
+        
+        if not model_uri:
+            logger.error("Cannot generate: model_uri is empty")
+            return None
+        
         payload = {
-            "modelUri": self._get_model_uri(),
+            "modelUri": model_uri,
             "completionOptions": {
                 "stream": False,
                 "temperature": temperature,
@@ -141,7 +159,7 @@ class YandexGPT:
             "messages": messages
         }
         
-        logger.debug(f"YandexGPT request with model: {self._get_model_uri()}")
+        logger.info(f"YandexGPT request: model={model_uri}, folder={self.folder_id}")
         
         try:
             async with aiohttp.ClientSession() as session:

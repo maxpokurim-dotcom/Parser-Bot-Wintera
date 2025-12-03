@@ -403,11 +403,13 @@ class ParsingWorker(BaseWorker):
         """Load user's AI credentials and model preference from database"""
         try:
             if not user_id:
+                self.logger.warning("No user_id provided for AI setup")
                 return
             
             # Get user settings
             settings = db.get_user_settings(user_id)
             if not settings:
+                self.logger.warning(f"No settings found for user {user_id}")
                 return
             
             from services.ai_service import ai_service
@@ -419,16 +421,22 @@ class ParsingWorker(BaseWorker):
             if api_key and folder_id:
                 ai_service.yandex.api_key = api_key
                 ai_service.yandex.folder_id = folder_id
-                self.logger.info(f"Using user's YandexGPT API credentials")
+                self.logger.info(f"Using user's YandexGPT credentials (folder: {folder_id[:10]}...)")
+            else:
+                self.logger.warning(f"User has no YandexGPT credentials configured (api_key={bool(api_key)}, folder_id={bool(folder_id)})")
             
             # Load model preference
             yandex_model = settings.get('yandex_gpt_model')
             if yandex_model:
                 ai_service.set_yandex_model(yandex_model)
                 self.logger.info(f"Using AI model: {yandex_model}")
+            else:
+                self.logger.info("No model preference set, using default")
                 
         except Exception as e:
-            self.logger.warning(f"Could not load AI settings: {e}")
+            self.logger.error(f"Could not load AI settings: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
     
     async def _parse_comments(self, task: dict, account: dict, channel: str):
         """Parse users from post comments"""
