@@ -125,8 +125,28 @@ class DB:
             response.raise_for_status()
             result = response.json()
             return result[0] if result else None
+        except requests.exceptions.HTTPError as e:
+            error_detail = ""
+            status_code = 0
+            try:
+                if hasattr(e, 'response') and e.response is not None:
+                    status_code = e.response.status_code
+                    try:
+                        error_detail = e.response.json()
+                    except:
+                        error_detail = e.response.text
+                else:
+                    error_detail = str(e)
+            except:
+                error_detail = str(e)
+            logger.error(f"INSERT {table} failed (HTTP {status_code}): {error_detail}")
+            logger.error(f"Data being inserted: {data}")
+            return None
         except Exception as e:
             logger.error(f"INSERT {table}: {e}")
+            logger.error(f"Data being inserted: {data}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
 
     @classmethod
@@ -2234,9 +2254,12 @@ class DB:
             'max_response_length': max_response_length if smart_personalization else 0,
             'tone': tone if smart_personalization else 'neutral',
             'language': language if smart_personalization else 'ru',
-            'base_template_id': base_template_id,
             'created_at': now_moscow().isoformat()
         }
+        
+        # Only add base_template_id if it's set and smart_personalization is enabled
+        if smart_personalization and base_template_id:
+            data['base_template_id'] = base_template_id
         
         if scheduled_at:
             data['scheduled_at'] = scheduled_at.isoformat()
