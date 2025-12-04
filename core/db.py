@@ -159,14 +159,20 @@ class DB:
                     status_code = e.response.status_code
                     try:
                         error_detail = e.response.json()
+                        # Log full error details
+                        logger.error(f"INSERT {table} failed (HTTP {status_code}): {error_detail}")
                     except:
                         error_detail = e.response.text
+                        logger.error(f"INSERT {table} failed (HTTP {status_code}): {error_detail}")
                 else:
                     error_detail = str(e)
-            except:
+                    logger.error(f"INSERT {table} failed: {error_detail}")
+            except Exception as parse_error:
                 error_detail = str(e)
-            logger.error(f"INSERT {table} failed (HTTP {status_code}): {error_detail}")
-            logger.error(f"Data being inserted: {data}")
+                logger.error(f"INSERT {table} failed: {error_detail}")
+                logger.error(f"Error parsing error response: {parse_error}")
+            
+            logger.error(f"Data being inserted into {table}: {data}")
             return None
         except Exception as e:
             logger.error(f"INSERT {table}: {e}")
@@ -2346,7 +2352,19 @@ class DB:
             data['scheduled_at'] = scheduled_at.isoformat()
         
         logger.info(f"Creating campaign with data: {data}")
-        result = cls._insert('campaigns', data)
+        
+        # Remove None values and 0 values for optional fields to avoid constraint issues
+        cleaned_data = {}
+        for k, v in data.items():
+            # Skip None values for optional fields (except account_folder_id which can be None)
+            if v is None and k not in ['account_folder_id', 'base_template_id', 'scheduled_at']:
+                continue
+            # Skip 0 for account_folder_id (should be None)
+            if k == 'account_folder_id' and v == 0:
+                continue
+            cleaned_data[k] = v
+        
+        result = cls._insert('campaigns', cleaned_data)
         logger.info(f"Campaign creation result: {result}")
         return result
 
