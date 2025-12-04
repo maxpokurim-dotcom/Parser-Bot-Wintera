@@ -11,7 +11,9 @@ from core.keyboards import (
     kb_content_menu, kb_content_style, kb_content_length, kb_content_actions,
     kb_content_channels_menu, kb_content_channel_actions,
     kb_inline_user_channels, kb_inline_generated_content,
-    reply_keyboard
+    kb_inline_user_channels_for_generation, kb_inline_user_channels_for_trends,
+    kb_inline_user_channels_for_summary,
+    reply_keyboard, inline_keyboard
 )
 from core.menu import show_main_menu, BTN_CANCEL, BTN_BACK, BTN_MAIN_MENU
 logger = logging.getLogger(__name__)
@@ -128,6 +130,29 @@ def handle_content(chat_id: int, user_id: int, text: str, state: str, saved: dic
     if state == 'content:gen:confirm':
         return _handle_gen_confirm(chat_id, user_id, text, saved)
     # Trend analysis flow
+    if state == 'content:trend:menu':
+        return _handle_trend_menu(chat_id, user_id, text, saved)
+    if state == 'content:trend:add:input':
+        return _handle_trend_add_input(chat_id, user_id, text, saved)
+    if state == 'content:trend:settings':
+        return _handle_trend_settings(chat_id, user_id, text, saved)
+    if state == 'content:trend:settings:interval':
+        try:
+            interval = int(text.strip())
+            if interval < 1 or interval > 168:
+                send_message(chat_id, "❌ Интервал от 1 до 168 часов", kb_back_cancel())
+                return True
+            
+            settings = DB.get_user_settings(user_id)
+            tracking = settings.get('trend_tracking_settings', {})
+            tracking['analyze_interval_hours'] = interval
+            DB.update_user_settings(user_id, trend_tracking_settings=tracking)
+            send_message(chat_id, f"✅ Интервал установлен: {interval} часов", kb_content_menu())
+            show_tracking_settings(chat_id, user_id)
+            return True
+        except ValueError:
+            send_message(chat_id, "❌ Введите число", kb_back_cancel())
+            return True
     if state == 'content:trend:channel':
         return _handle_trend_channel(chat_id, user_id, text, saved)
     if state == 'content:trend:period':
@@ -294,7 +319,7 @@ def _handle_gen_trends(chat_id: int, user_id: int, text: str, saved: dict) -> bo
         send_message(chat_id,
             "📢 <b>Целевой канал</b>\n"
             "Выберите канал, для которого генерируется пост:",
-            kb_inline_user_channels(channels)
+            kb_inline_user_channels_for_generation(channels)
         )
     else:
         saved['channel_id'] = None
@@ -401,24 +426,200 @@ def start_trend_analysis(chat_id: int, user_id: int):
             kb_content_menu()
         )
         return
+    
+    # Get monitored channels
+    monitored = DB.get_monitored_channels(user_id, active_only=True)
+    monitored_ids = {m['channel_id'] for m in monitored if m.get('channel_id')}
+    
+    # Get all user channels
     channels = DB.get_user_channels(user_id)
-    if not channels:
+    
+    # Show menu with options
+    DB.set_user_state(user_id, 'content:trend:menu', {})
+    send_message(chat_id,
+        "📊 <b>Анализ трендов</b>\n\n"
+        f"📈 Отслеживается каналов: <b>{len(monitored)}</b>\n\n"
+        "Выберите действие:",
+        reply_keyboard([
+            ['📊 Разовый анализ', '➕ Добавить для анализа'],
+            ['📋 Отслеживаемые каналы', '⚙️ Настройки отслеживания'],
+            ['◀️ Назад']
+        ])
+    )
+
+def _handle_trend_menu(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle trend analysis menu"""
+    if text == '📊 Разовый анализ':
+        channels = DB.get_user_channels(user_id)
+        if not channels:
+            send_message(chat_id,
+                "❌ <b>Нет добавленных каналов</b>\n"
+                "Добавьте каналы в разделе «🔗 Мои каналы»",
+                kb_content_menu()
+            )
+            return True
+        DB.set_user_state(user_id, 'content:trend:channel', {'channels': channels})
         send_message(chat_id,
-            "❌ <b>Нет добавленных каналов</b>\n"
-            "Добавьте каналы в разделе «🔗 Мои каналы»",
+            "📊 <b>Разовый анализ</b>\n"
+            "Выберите канал для анализа:",
+            kb_inline_user_channels_for_trends(channels)
+        )
+        return True
+    
+    if text == '➕ Добавить для анализа':
+        DB.set_user_state(user_id, 'content:trend:add:input', {})
+        send_message(chat_id,
+            "➕ <b>Добавить для отслеживания</b>\n\n"
+            "Введите username канала или чата:\n"
+            "• Для канала: <code>@channel_name</code>\n"
+            "• Для чата: <code>@chat_name</code>\n\n"
+            "Бот будет отслеживать новые посты и анализировать тренды.",
+            kb_back_cancel()
+        )
+        return True
+    
+    if text == '📋 Отслеживаемые каналы':
+        show_monitored_channels(chat_id, user_id)
+        return True
+    
+    if text == '⚙️ Настройки отслеживания':
+        show_tracking_settings(chat_id, user_id)
+        return True
+    
+    return False
+
+def _handle_trend_add_input(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle adding channel/chat for tracking"""
+    import re
+    link = text.strip().lower()
+    username = re.sub(r'^(@|https?://t\.me/)', '', link)
+    username = username.split('/')[0]
+    
+    if not re.match(r'^[a-zA-Z][\w_]{4,}$', username):
+        send_message(chat_id, "❌ Неверный формат. Введите username канала или чата", kb_back_cancel())
+        return True
+    
+    # Check if already monitored
+    existing = DB.get_monitored_channels(user_id, active_only=False)
+    for ch in existing:
+        if ch.get('channel_username') == username:
+            send_message(chat_id,
+                f"⚠️ Канал @{username} уже отслеживается",
+                kb_content_menu()
+            )
+            DB.set_user_state(user_id, 'content:menu')
+            return True
+    
+    # Add to monitored channels
+    monitored = DB.create_monitored_channel(
+        user_id=user_id,
+        channel_username=username,
+        channel_type='channel',  # Will be determined automatically
+        priority=5,
+        settings={
+            'auto_analyze': True,
+            'analyze_interval_hours': 24,
+            'posts_per_analysis': 10
+        }
+    )
+    
+    if monitored:
+        send_message(chat_id,
+            f"✅ <b>Канал добавлен для отслеживания!</b>\n\n"
+            f"📢 @{username}\n"
+            f"📊 Бот будет анализировать новые посты\n"
+            f"🔄 Интервал: каждые 24 часа",
+            kb_content_menu()
+        )
+    else:
+        send_message(chat_id, "❌ Ошибка добавления", kb_content_menu())
+    
+    DB.set_user_state(user_id, 'content:menu')
+    return True
+
+def show_monitored_channels(chat_id: int, user_id: int):
+    """Show list of monitored channels"""
+    monitored = DB.get_monitored_channels(user_id, active_only=True)
+    
+    if not monitored:
+        send_message(chat_id,
+            "📋 <b>Отслеживаемые каналы</b>\n\n"
+            "Нет активных отслеживаний.\n"
+            "Добавьте каналы через «➕ Добавить для анализа»",
             kb_content_menu()
         )
         return
-    DB.set_user_state(user_id, 'content:trend:channel', {'channels': channels})
+    
+    text = f"📋 <b>Отслеживаемые каналы ({len(monitored)}):</b>\n\n"
+    for ch in monitored[:10]:
+        status = '✅' if ch.get('is_active') else '❌'
+        username = ch.get('channel_username', '?')
+        text += f"{status} @{username}\n"
+    
+    # Create inline keyboard
+    buttons = []
+    for ch in monitored[:10]:
+        buttons.append([{
+            'text': f"{'✅' if ch.get('is_active') else '❌'} @{ch.get('channel_username', '?')}",
+            'callback_data': f"trendmon:{ch['id']}"
+        }])
+    
+    send_message(chat_id, text, inline_keyboard(buttons) if buttons else None)
+    send_message(chat_id, "Выберите канал для управления:", kb_content_menu())
+
+def show_tracking_settings(chat_id: int, user_id: int):
+    """Show tracking settings"""
+    settings = DB.get_user_settings(user_id)
+    tracking = settings.get('trend_tracking_settings', {})
+    
+    auto_analyze = '✅ Вкл' if tracking.get('auto_analyze', True) else '❌ Выкл'
+    interval = tracking.get('analyze_interval_hours', 24)
+    
     send_message(chat_id,
-        "📊 <b>Анализ трендов</b>\n"
-        "Выберите канал для анализа:",
-        kb_inline_user_channels(channels)
+        f"⚙️ <b>Настройки отслеживания</b>\n\n"
+        f"<b>Авто-анализ:</b> {auto_analyze}\n"
+        f"<b>Интервал:</b> каждые {interval} часов\n\n"
+        f"Настройки применяются ко всем отслеживаемым каналам.",
+        reply_keyboard([
+            ['🔄 Авто-анализ', f'⏰ Интервал ({interval}ч)'],
+            ['◀️ Назад']
+        ])
     )
+    DB.set_user_state(user_id, 'content:trend:settings')
+
+def _handle_trend_settings(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle trend tracking settings"""
+    settings = DB.get_user_settings(user_id)
+    tracking = settings.get('trend_tracking_settings', {})
+    
+    if text == '🔄 Авто-анализ':
+        current = tracking.get('auto_analyze', True)
+        tracking['auto_analyze'] = not current
+        DB.update_user_settings(user_id, trend_tracking_settings=tracking)
+        status = 'включён' if not current else 'выключен'
+        send_message(chat_id, f"✅ Авто-анализ {status}", kb_content_menu())
+        show_tracking_settings(chat_id, user_id)
+        return True
+    
+    if text.startswith('⏰ Интервал'):
+        DB.set_user_state(user_id, 'content:trend:settings:interval', {})
+        send_message(chat_id,
+            "⏰ <b>Интервал анализа</b>\n\n"
+            "Введите интервал в часах (1-168):\n"
+            "Примеры: <code>6</code>, <code>12</code>, <code>24</code>",
+            kb_back_cancel()
+        )
+        return True
+    
+    return False
 
 def _handle_trend_channel(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     send_message(chat_id, "Выберите канал из списка", kb_back_cancel())
     return True
+
+def _handle_trend_period(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle trend analysis period selection (stub)"""
+    return False
 
 def _show_trend_confirmation(chat_id: int, user_id: int, saved: dict):
     channel = DB.get_user_channel(saved['channel_id'])
@@ -494,7 +695,7 @@ def start_discussion_summary(chat_id: int, user_id: int):
     send_message(chat_id,
         "💬 <b>Итоги обсуждений</b>\n"
         "Выберите канал для анализа комментариев:",
-        kb_inline_user_channels(channels)
+        kb_inline_user_channels_for_summary(channels)
     )
 
 def _handle_summary_channel(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
@@ -1256,8 +1457,8 @@ def handle_content_plan_callback(chat_id: int, msg_id: int, user_id: int, data: 
         state_data = DB.get_user_state(user_id)
         saved = state_data.get('data', {}) if state_data else {}
         saved['channel_id'] = channel_id
-        
         DB.set_user_state(user_id, 'content:plan:schedule:content', saved)
+        answer_callback(msg_id, f"✅ Канал выбран")
         
         channel = DB.get_user_channel(channel_id)
         channel_name = f"@{channel['channel_username']}" if channel else "Канал"
@@ -1280,10 +1481,12 @@ def handle_content_plan_callback(chat_id: int, msg_id: int, user_id: int, data: 
         # Now select channel
         channels = DB.get_user_channels(user_id)
         if not channels:
+            answer_callback(msg_id, "❌ Нет каналов")
             send_message(chat_id, "❌ Нет каналов", kb_content_menu())
             return True
         
         DB.set_user_state(user_id, 'content:plan:link:channel', saved)
+        answer_callback(msg_id, f"✅ Шаблон выбран")
         
         buttons = []
         for ch in channels[:10]:
@@ -1292,8 +1495,8 @@ def handle_content_plan_callback(chat_id: int, msg_id: int, user_id: int, data: 
                 'callback_data': f"cplch:{ch['id']}"
             }])
         
-        from core.keyboards import inline_keyboard
         send_message(chat_id,
+            f"✅ Шаблон выбран\n\n"
             f"<b>Шаг 2/3:</b> Выберите канал для публикации:",
             inline_keyboard(buttons)
         )
@@ -1307,11 +1510,13 @@ def handle_content_plan_callback(chat_id: int, msg_id: int, user_id: int, data: 
         saved['channel_id'] = channel_id
         
         DB.set_user_state(user_id, 'content:plan:link:schedule', saved)
+        answer_callback(msg_id, f"✅ Канал выбран")
         
         from core.timezone import now_moscow, format_moscow
         current_time = format_moscow(now_moscow(), '%H:%M')
         
         send_message(chat_id,
+            f"✅ Канал выбран\n\n"
             f"<b>Шаг 3/3:</b> Введите время ежедневной публикации:\n\n"
             f"<b>Формат:</b> <code>HH:MM</code>\n\n"
             f"<b>Пример:</b> <code>10:00</code>\n\n"
@@ -1354,6 +1559,24 @@ def handle_content_plan_callback(chat_id: int, msg_id: int, user_id: int, data: 
         show_content_plan(chat_id, user_id)
         return True
     
+    # Monitored channel management
+    if data.startswith('trendmon:'):
+        monitored_id = int(data.split(':')[1])
+        monitored = DB.get_monitored_channel(monitored_id)
+        if monitored:
+            channel_name = f"@{monitored.get('channel_username', '?')}"
+            is_active = monitored.get('is_active', True)
+            new_status = not is_active
+            DB.update_monitored_channel(monitored_id, is_active=new_status)
+            status_text = 'активирован' if new_status else 'деактивирован'
+            answer_callback(msg_id, f"✅ Канал {status_text}")
+            send_message(chat_id,
+                f"✅ Канал {channel_name} {status_text}",
+                kb_content_menu()
+            )
+            show_monitored_channels(chat_id, user_id)
+        return True
+    
     return False
 
 # ==================== CALLBACK HANDLER ====================
@@ -1364,9 +1587,15 @@ def handle_content_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
     if data.startswith('cp'):
         return handle_content_plan_callback(chat_id, msg_id, user_id, data)
     
-    # Channel selection
+    # Channel selection (general view - only if not in content generation flow)
     if data.startswith('uch:'):
         channel_id = int(data.split(':')[1])
+        state_data = DB.get_user_state(user_id)
+        state = state_data.get('state', '') if state_data else ''
+        # If in content generation flow, don't show channel view
+        if state.startswith('content:gen:') or state.startswith('content:trend:') or state.startswith('content:summary:'):
+            # This shouldn't happen with new keyboards, but handle it
+            return False
         show_channel_view(chat_id, user_id, channel_id)
         return True
     # Generated content selection
@@ -1381,7 +1610,11 @@ def handle_content_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
         if state_data and state_data.get('state', '').startswith('content:gen:'):
             saved = state_data.get('data', {})
             saved['channel_id'] = channel_id
+            DB.set_user_state(user_id, state_data.get('state'), saved)
+            answer_callback(msg_id, f"✅ Канал выбран")
             _show_generation_confirmation(chat_id, user_id, saved)
+        else:
+            answer_callback(msg_id, "❌ Ошибка: состояние не найдено")
         return True
     # Trend analysis channel selection
     if data.startswith('trendch:'):
@@ -1390,7 +1623,11 @@ def handle_content_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
         if state_data and state_data.get('state', '').startswith('content:trend:'):
             saved = state_data.get('data', {})
             saved['channel_id'] = channel_id
+            DB.set_user_state(user_id, state_data.get('state'), saved)
+            answer_callback(msg_id, f"✅ Канал выбран")
             _show_trend_confirmation(chat_id, user_id, saved)
+        else:
+            answer_callback(msg_id, "❌ Ошибка: состояние не найдено")
         return True
     # Summary channel selection
     if data.startswith('sumch:'):
