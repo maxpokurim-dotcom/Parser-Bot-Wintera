@@ -2317,12 +2317,14 @@ class DB:
                        base_template_id: int = None) -> Optional[Dict]:
         stats = cls.get_audience_stats(source_id)
         
+        # Normalize account_folder_id: 0 or None should be None
+        normalized_folder_id = account_folder_id if account_folder_id and account_folder_id > 0 else None
+        
         data = {
             'owner_id': user_id,
             'source_id': source_id,
             'template_id': template_id,
             'account_ids': account_ids or [],
-            'account_folder_id': account_folder_id,
             'current_account_id': account_ids[0] if account_ids else None,
             'next_account_index': 0,
             'status': 'pending' if not scheduled_at else 'scheduled',
@@ -2344,6 +2346,10 @@ class DB:
             'created_at': now_moscow().isoformat()
         }
         
+        # Only add account_folder_id if it's not None
+        if normalized_folder_id is not None:
+            data['account_folder_id'] = normalized_folder_id
+        
         # Only add base_template_id if it's set and smart_personalization is enabled
         if smart_personalization and base_template_id:
             data['base_template_id'] = base_template_id
@@ -2353,20 +2359,32 @@ class DB:
         
         logger.info(f"Creating campaign with data: {data}")
         
-        # Remove None values and 0 values for optional fields to avoid constraint issues
+        # Clean data: remove None values for optional fields
+        # account_folder_id, base_template_id, scheduled_at, current_account_id can be None
         cleaned_data = {}
         for k, v in data.items():
-            # Skip None values for optional fields (except account_folder_id which can be None)
-            if v is None and k not in ['account_folder_id', 'base_template_id', 'scheduled_at']:
-                continue
-            # Skip 0 for account_folder_id (should be None)
-            if k == 'account_folder_id' and v == 0:
-                continue
+            # Skip None for most fields, but allow None for optional foreign keys
+            if v is None:
+                # Only include None for fields that explicitly allow it
+                if k in ['account_folder_id', 'base_template_id', 'scheduled_at', 'current_account_id']:
+                    # Don't include None - Supabase will use default or NULL
+                    continue
+                else:
+                    # Skip None for required fields
+                    continue
             cleaned_data[k] = v
         
-        result = cls._insert('campaigns', cleaned_data)
-        logger.info(f"Campaign creation result: {result}")
-        return result
+        logger.info(f"Cleaned campaign data (removed None values): {cleaned_data}")
+        
+        try:
+            result = cls._insert('campaigns', cleaned_data)
+            logger.info(f"Campaign creation result: {result}")
+            if not result:
+                logger.error(f"Campaign creation returned None. Check Supabase logs for details.")
+            return result
+        except Exception as e:
+            logger.error(f"Exception in create_campaign: {e}", exc_info=True)
+            return None
 
     @classmethod
     def get_campaigns(cls, user_id: int) -> List[Dict]:
