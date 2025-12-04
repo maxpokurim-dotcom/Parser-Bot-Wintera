@@ -1197,7 +1197,7 @@ def kb_inline_warmup_accounts(accounts: List[dict]) -> dict:
 # ==================== CONTENT INLINE KEYBOARDS ====================
 
 def kb_inline_user_channels(channels: List[dict]) -> dict:
-    """Inline keyboard for user channels"""
+    """Inline keyboard for user channels (general view)"""
     buttons = []
     for c in channels[:10]:
         name = c.get('title') or f"@{c['channel_username']}"
@@ -1205,6 +1205,42 @@ def kb_inline_user_channels(channels: List[dict]) -> dict:
         buttons.append([{
             'text': f"📢 {name}",
             'callback_data': f"uch:{c['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_user_channels_for_generation(channels: List[dict]) -> dict:
+    """Inline keyboard for channel selection in content generation"""
+    buttons = []
+    for c in channels[:10]:
+        name = c.get('title') or f"@{c['channel_username']}"
+        name = name[:25] + '..' if len(name) > 25 else name
+        buttons.append([{
+            'text': f"📢 {name}",
+            'callback_data': f"gench:{c['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_user_channels_for_trends(channels: List[dict]) -> dict:
+    """Inline keyboard for channel selection in trend analysis"""
+    buttons = []
+    for c in channels[:10]:
+        name = c.get('title') or f"@{c['channel_username']}"
+        name = name[:25] + '..' if len(name) > 25 else name
+        buttons.append([{
+            'text': f"📢 {name}",
+            'callback_data': f"trendch:{c['id']}"
+        }])
+    return inline_keyboard(buttons) if buttons else None
+
+def kb_inline_user_channels_for_summary(channels: List[dict]) -> dict:
+    """Inline keyboard for channel selection in discussion summary"""
+    buttons = []
+    for c in channels[:10]:
+        name = c.get('title') or f"@{c['channel_username']}"
+        name = name[:25] + '..' if len(name) > 25 else name
+        buttons.append([{
+            'text': f"📢 {name}",
+            'callback_data': f"sumch:{c['id']}"
         }])
     return inline_keyboard(buttons) if buttons else None
 
