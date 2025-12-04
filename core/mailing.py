@@ -582,7 +582,10 @@ def handle_mailing_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
     if data.startswith('mbtpl:'):
         base_template_id = int(data.split(':')[1])
         saved['base_template_id'] = base_template_id
-        saved['template_id'] = base_template_id  # Also set as regular template_id for compatibility
+        # For smart mailing, we need both base_template_id (for generation) and template_id (for fallback)
+        # If template_id is not set, use base_template_id as template_id
+        if 'template_id' not in saved or not saved.get('template_id'):
+            saved['template_id'] = base_template_id
         
         # Get template name for confirmation
         template = DB.get_template(base_template_id)
