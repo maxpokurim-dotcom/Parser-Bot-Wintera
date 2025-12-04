@@ -956,6 +956,7 @@ def start_mailing_now(chat_id: int, user_id: int, saved: dict):
     
     # Normalize folder_id: 0 or None should be None
     account_folder_id = folder_id if folder_id and folder_id > 0 else None
+    logger.info(f"Creating campaign: folder_id={folder_id}, normalized={account_folder_id}, account_ids={account_ids}")
     
     try:
         campaign = DB.create_campaign(
