@@ -975,7 +975,7 @@ def start_mailing_now(chat_id: int, user_id: int, saved: dict):
         max_response_length=saved.get('max_response_length', 280),
         tone=saved.get('tone', 'neutral'),
         language=saved.get('language', 'ru'),
-        base_template_id=saved.get('base_template_id')
+        base_template_id=saved.get('base_template_id') if saved.get('smart_personalization') else None
     )
     
     DB.clear_user_state(user_id)
