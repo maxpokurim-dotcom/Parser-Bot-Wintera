@@ -385,6 +385,22 @@ def handle_mailing_settings(chat_id: int, user_id: int, text: str, saved: dict) 
         show_mailing_settings_menu(chat_id, user_id, saved)
         return True
     
+    # Toggle smart personalization
+    if '🧠 Умная персонализация:' in text:
+        saved['smart_personalization'] = not saved.get('smart_personalization', False)
+        if saved['smart_personalization']:
+            # Set defaults if enabling
+            saved['context_depth'] = saved.get('context_depth', 5)
+            saved['max_response_length'] = saved.get('max_response_length', 280)
+            saved['tone'] = saved.get('tone', 'neutral')
+            saved['language'] = saved.get('language', 'ru')
+            # Show smart settings
+            DB.set_user_state(user_id, 'mailing:smart_settings', saved)
+            show_smart_mailing_settings(chat_id, user_id, saved)
+        else:
+            show_mailing_settings_menu(chat_id, user_id, saved)
+        return True
+    
     # Done - return to confirm
     if text == '✅ Готово':
         show_mailing_confirm(chat_id, user_id, saved)
@@ -544,17 +560,29 @@ def show_mailing_settings_menu(chat_id: int, user_id: int, saved: dict):
     warm_status = 'ВКЛ ✅' if saved.get('use_warm_start', True) else 'ВЫКЛ ❌'
     typing_status = 'ВКЛ ✅' if saved.get('use_typing', True) else 'ВЫКЛ ❌'
     adaptive_status = 'ВКЛ ✅' if saved.get('use_adaptive', True) else 'ВЫКЛ ❌'
+    smart_status = 'ВКЛ ✅' if saved.get('smart_personalization', False) else 'ВЫКЛ ❌'
     
     # Dynamic keyboard based on current settings
     buttons = [
         [f"🔥 Тёплый старт: {warm_status}"],
         [f"⌨️ Имитация печати: {typing_status}"],
         [f"📊 Адаптивные задержки: {adaptive_status}"],
+        [f"🧠 Умная персонализация: {smart_status}"],
         ['✅ Готово'],
         ['◀️ Назад']
     ]
     
     kb = {'keyboard': buttons, 'resize_keyboard': True}
+    
+    smart_info = ""
+    if saved.get('smart_personalization'):
+        context_depth = saved.get('context_depth', 5)
+        max_length = saved.get('max_response_length', 280)
+        tone = saved.get('tone', 'neutral')
+        smart_info = f"\n\n🧠 <b>Умная персонализация:</b> {smart_status}\n"
+        smart_info += f"<i>Глубина контекста: {context_depth} сообщений</i>\n"
+        smart_info += f"<i>Макс. длина: {max_length} символов</i>\n"
+        smart_info += f"<i>Тон: {tone}</i>"
     
     send_message(chat_id,
         "⚙️ <b>Настройки рассылки</b>\n\n"
@@ -564,9 +592,90 @@ def show_mailing_settings_menu(chat_id: int, user_id: int, saved: dict):
         "<i>Отображение «печатает...» перед отправкой</i>\n\n"
         f"📊 <b>Адаптивные задержки:</b> {adaptive_status}\n"
         "<i>Автоматическая корректировка пауз при ошибках</i>\n\n"
+        f"🧠 <b>Умная персонализация:</b> {smart_status}\n"
+        "<i>Генерация персональных сообщений на основе контекста</i>"
+        + smart_info + "\n\n"
         "Нажмите на настройку для переключения:",
         kb
     )
+
+
+def show_smart_mailing_settings(chat_id: int, user_id: int, saved: dict):
+    """Show smart mailing settings"""
+    context_depth = saved.get('context_depth', 5)
+    max_length = saved.get('max_response_length', 280)
+    tone = saved.get('tone', 'neutral')
+    
+    tone_names = {
+        'neutral': 'Нейтральный',
+        'warm': 'Тёплый',
+        'mystical': 'Мистический',
+        'concise': 'Лаконичный'
+    }
+    
+    send_message(chat_id,
+        "🧠 <b>Настройки умной персонализации</b>\n\n"
+        f"📊 <b>Глубина контекста:</b> {context_depth} сообщений\n"
+        "<i>Сколько последних сообщений использовать</i>\n\n"
+        f"📏 <b>Макс. длина:</b> {max_length} символов\n\n"
+        f"🎭 <b>Тон:</b> {tone_names.get(tone, tone)}\n\n"
+        "Настройте параметры:",
+        reply_keyboard([
+            ['📊 Глубина контекста', '📏 Макс. длина'],
+            ['🎭 Тон', '✅ Готово'],
+            ['◀️ Назад']
+        ])
+    )
+
+
+def handle_smart_mailing_settings(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle smart mailing settings"""
+    if text == '✅ Готово':
+        DB.set_user_state(user_id, 'mailing:settings', saved)
+        show_mailing_settings_menu(chat_id, user_id, saved)
+        return True
+    
+    if text == '◀️ Назад':
+        saved['smart_personalization'] = False
+        DB.set_user_state(user_id, 'mailing:settings', saved)
+        show_mailing_settings_menu(chat_id, user_id, saved)
+        return True
+    
+    if text == '📊 Глубина контекста':
+        DB.set_user_state(user_id, 'mailing:smart:context_depth', saved)
+        send_message(chat_id,
+            "📊 <b>Глубина контекста</b>\n\n"
+            "Введите число от 1 до 20:\n"
+            "<i>Сколько последних сообщений пользователя использовать для генерации</i>\n\n"
+            "<b>Рекомендуется:</b> 5-10 сообщений",
+            kb_back_cancel()
+        )
+        return True
+    
+    if text == '📏 Макс. длина':
+        DB.set_user_state(user_id, 'mailing:smart:max_length', saved)
+        send_message(chat_id,
+            "📏 <b>Максимальная длина ответа</b>\n\n"
+            "Введите число символов (100-500):\n"
+            "<i>Максимальная длина сгенерированного сообщения</i>\n\n"
+            "<b>Рекомендуется:</b> 200-300 символов",
+            kb_back_cancel()
+        )
+        return True
+    
+    if text == '🎭 Тон':
+        DB.set_user_state(user_id, 'mailing:smart:tone', saved)
+        send_message(chat_id,
+            "🎭 <b>Выберите тон сообщений:</b>",
+            reply_keyboard([
+                ['Нейтральный', 'Тёплый'],
+                ['Мистический', 'Лаконичный'],
+                ['◀️ Назад']
+            ])
+        )
+        return True
+    
+    return False
 
 
 def show_mailing_confirm(chat_id: int, user_id: int, saved: dict):
@@ -675,7 +784,17 @@ def start_mailing_now(chat_id: int, user_id: int, saved: dict):
         },
         use_warm_start=saved.get('use_warm_start', True),
         use_typing=saved.get('use_typing', True),
-        use_adaptive=saved.get('use_adaptive', True)
+        use_adaptive=saved.get('use_adaptive', True),
+        smart_personalization=saved.get('smart_personalization', False),
+        context_depth=saved.get('context_depth', 5),
+        max_response_length=saved.get('max_response_length', 280),
+        tone=saved.get('tone', 'neutral'),
+        language=saved.get('language', 'ru')
+    )
+        context_depth=saved.get('context_depth', 5),
+        max_response_length=saved.get('max_response_length', 280),
+        tone=saved.get('tone', 'neutral'),
+        language=saved.get('language', 'ru')
     )
     
     DB.clear_user_state(user_id)
