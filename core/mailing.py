@@ -954,31 +954,49 @@ def start_mailing_now(chat_id: int, user_id: int, saved: dict):
     account_ids = [a['id'] for a in active_accounts]
     settings = DB.get_user_settings(user_id)
     
-    campaign = DB.create_campaign(
-        user_id=user_id,
-        source_id=saved['source_id'],
-        template_id=saved['template_id'],
-        account_ids=account_ids,
-        account_folder_id=folder_id,
-        settings={
-            'delay_min': saved.get('delay_min') or settings.get('delay_min', 30),
-            'delay_max': saved.get('delay_max') or settings.get('delay_max', 90),
-            'auto_switch': True,
-            'report_every': 10,
-            'cache_ttl': settings.get('mailing_cache_ttl', 30)
-        },
-        use_warm_start=saved.get('use_warm_start', True),
-        use_typing=saved.get('use_typing', True),
-        use_adaptive=saved.get('use_adaptive', True),
-        smart_personalization=saved.get('smart_personalization', False),
-        context_depth=saved.get('context_depth', 5),
-        max_response_length=saved.get('max_response_length', 280),
-        tone=saved.get('tone', 'neutral'),
-        language=saved.get('language', 'ru'),
-        base_template_id=saved.get('base_template_id') if saved.get('smart_personalization') else None
-    )
-    
-    DB.clear_user_state(user_id)
+    try:
+        campaign = DB.create_campaign(
+            user_id=user_id,
+            source_id=saved['source_id'],
+            template_id=saved['template_id'],
+            account_ids=account_ids,
+            account_folder_id=folder_id,
+            settings={
+                'delay_min': saved.get('delay_min') or settings.get('delay_min', 30),
+                'delay_max': saved.get('delay_max') or settings.get('delay_max', 90),
+                'auto_switch': True,
+                'report_every': 10,
+                'cache_ttl': settings.get('mailing_cache_ttl', 30)
+            },
+            use_warm_start=saved.get('use_warm_start', True),
+            use_typing=saved.get('use_typing', True),
+            use_adaptive=saved.get('use_adaptive', True),
+            smart_personalization=saved.get('smart_personalization', False),
+            context_depth=saved.get('context_depth', 5),
+            max_response_length=saved.get('max_response_length', 280),
+            tone=saved.get('tone', 'neutral'),
+            language=saved.get('language', 'ru'),
+            base_template_id=saved.get('base_template_id') if saved.get('smart_personalization') else None
+        )
+        
+        DB.clear_user_state(user_id)
+        
+        if not campaign:
+            logger.error(f"Failed to create campaign for user {user_id}. Saved data: {saved}")
+            send_message(chat_id, 
+                "❌ Ошибка создания рассылки\n\n"
+                "Проверьте логи на сервере для деталей.",
+                kb_mailing_menu()
+            )
+            return
+    except Exception as e:
+        logger.error(f"Exception creating campaign for user {user_id}: {e}", exc_info=True)
+        DB.clear_user_state(user_id)
+        send_message(chat_id, 
+            f"❌ Ошибка создания рассылки: {str(e)}",
+            kb_mailing_menu()
+        )
+        return
     
     if campaign:
         stats = DB.get_audience_stats(saved['source_id'])
