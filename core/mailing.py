@@ -100,8 +100,11 @@ def handle_mailing(chat_id: int, user_id: int, text: str, state: str, saved: dic
         return True
     
     if text == BTN_BACK:
-        if state in ['mailing:menu', 'mailing:select_source']:
-            show_main_menu(chat_id, user_id)
+        if state in ['mailing:menu', 'mailing:select_source', 'mailing:choose_type']:
+            if state == 'mailing:choose_type':
+                show_mailing_menu(chat_id, user_id)
+            else:
+                show_main_menu(chat_id, user_id)
         elif state.startswith('mailing:view_campaign:'):
             show_active_campaigns(chat_id, user_id)
         elif state.startswith('mailing:scheduler'):
@@ -155,6 +158,36 @@ def handle_mailing(chat_id: int, user_id: int, text: str, state: str, saved: dic
         if text == '◀️ К списку':
             show_scheduled_mailings(chat_id, user_id)
             return True
+    
+    # Choose mailing type state - MUST be before other mailing states
+    if state == 'mailing:choose_type':
+        logger.info(f"Processing mailing:choose_type state, text: {text}")
+        if 'Умная рассылка' in text or text == '🧠 Умная рассылка':
+            if not saved:
+                saved = {}
+            saved['smart_personalization'] = True
+            saved['context_depth'] = 5
+            saved['max_response_length'] = 280
+            saved['tone'] = 'neutral'
+            saved['language'] = 'ru'
+            # Go to source selection
+            logger.info(f"Setting state to mailing:select_source with smart_personalization=True")
+            DB.set_user_state(user_id, 'mailing:select_source', saved)
+            _show_source_selection(chat_id, user_id, saved)
+            return True
+        elif 'Обычная рассылка' in text or text == '📝 Обычная рассылка':
+            if not saved:
+                saved = {}
+            saved['smart_personalization'] = False
+            # Go to source selection
+            DB.set_user_state(user_id, 'mailing:select_source', saved)
+            _show_source_selection(chat_id, user_id, saved)
+            return True
+        elif text == BTN_BACK or text == '◀️ Назад':
+            show_mailing_menu(chat_id, user_id)
+            return True
+        # Unknown text in this state - stay in state
+        return True
     
     # Mailing settings state
     if state == 'mailing:settings':
