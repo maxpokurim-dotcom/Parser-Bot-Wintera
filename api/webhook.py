@@ -253,7 +253,22 @@ def handle_callback(callback: dict):
         handle_factory_callback(chat_id, msg_id, user_id, data)
         return
     # Content callbacks
-    if data.startswith('uch:') or data.startswith('gcont:'):
+    # uch:   - выбор канала в разделе «Мои каналы»
+    # gcont: - выбор сгенерированного контента
+    # gench: - выбор целевого канала при генерации постов
+    # trendch: - выбор канала для анализа трендов
+    # sumch: - выбор канала для итогов обсуждений
+    # cp... - callbacks контент-плана (cpch, cptpl, cplch, cpview, cpdel)
+    # trendmon: - управление отслеживаемыми каналами для трендов
+    if (
+        data.startswith('uch:') or
+        data.startswith('gcont:') or
+        data.startswith('gench:') or
+        data.startswith('trendch:') or
+        data.startswith('sumch:') or
+        data.startswith('cp') or
+        data.startswith('trendmon:')
+    ):
         handle_content_callback(chat_id, msg_id, user_id, data)
         return
     # Analytics callbacks
