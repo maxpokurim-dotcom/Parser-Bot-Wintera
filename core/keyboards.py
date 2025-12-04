@@ -874,7 +874,7 @@ def kb_inline_mailing_sources(sources: List[dict]) -> dict:
         }])
     return inline_keyboard(buttons) if buttons else None
 
-def kb_inline_mailing_templates(templates: List[dict]) -> dict:
+def kb_inline_mailing_templates(templates: List[dict], prefix: str = 'mtpl:') -> dict:
     """Inline keyboard for mailing template selection"""
     buttons = []
     for t in templates[:15]:
@@ -882,7 +882,7 @@ def kb_inline_mailing_templates(templates: List[dict]) -> dict:
         name = t['name'][:25] + '..' if len(t['name']) > 25 else t['name']
         buttons.append([{
             'text': f"{emoji} {name}",
-            'callback_data': f"mtpl:{t['id']}"
+            'callback_data': f"{prefix}{t['id']}"
         }])
     return inline_keyboard(buttons) if buttons else None
 
