@@ -954,13 +954,16 @@ def start_mailing_now(chat_id: int, user_id: int, saved: dict):
     account_ids = [a['id'] for a in active_accounts]
     settings = DB.get_user_settings(user_id)
     
+    # Normalize folder_id: 0 or None should be None
+    account_folder_id = folder_id if folder_id and folder_id > 0 else None
+    
     try:
         campaign = DB.create_campaign(
             user_id=user_id,
             source_id=saved['source_id'],
             template_id=saved['template_id'],
             account_ids=account_ids,
-            account_folder_id=folder_id,
+            account_folder_id=account_folder_id,
             settings={
                 'delay_min': saved.get('delay_min') or settings.get('delay_min', 30),
                 'delay_max': saved.get('delay_max') or settings.get('delay_max', 90),
