@@ -124,7 +124,33 @@ class DB:
             response = requests.post(cls._api_url(table), headers=cls._headers(), json=data, timeout=10)
             response.raise_for_status()
             result = response.json()
-            return result[0] if result else None
+            
+            # Log response for debugging
+            logger.debug(f"INSERT {table} response: {result}")
+            
+            # Supabase returns data in different formats depending on the request
+            # Check if result is a list or dict
+            if isinstance(result, list):
+                if len(result) > 0:
+                    return result[0]
+                else:
+                    logger.warning(f"INSERT {table} returned empty list")
+                    return None
+            elif isinstance(result, dict):
+                # Sometimes Supabase returns {'data': [...]} or just the object
+                if 'data' in result:
+                    data_list = result['data']
+                    if isinstance(data_list, list) and len(data_list) > 0:
+                        return data_list[0]
+                    else:
+                        logger.warning(f"INSERT {table} returned empty data array")
+                        return None
+                else:
+                    # Direct object return
+                    return result if result else None
+            else:
+                logger.warning(f"INSERT {table} returned unexpected format: {type(result)}")
+                return None
         except requests.exceptions.HTTPError as e:
             error_detail = ""
             status_code = 0
@@ -2264,7 +2290,10 @@ class DB:
         if scheduled_at:
             data['scheduled_at'] = scheduled_at.isoformat()
         
-        return cls._insert('campaigns', data)
+        logger.info(f"Creating campaign with data: {data}")
+        result = cls._insert('campaigns', data)
+        logger.info(f"Campaign creation result: {result}")
+        return result
 
     @classmethod
     def get_campaigns(cls, user_id: int) -> List[Dict]:
