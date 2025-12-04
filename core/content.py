@@ -166,6 +166,15 @@ def handle_content(chat_id: int, user_id: int, text: str, state: str, saved: dic
         return _handle_summary_period(chat_id, user_id, text, saved)
     if state == 'content:summary:confirm':
         return _handle_summary_confirm(chat_id, user_id, text, saved)
+    # Auto templates generation flow
+    if state == 'content:auto_templates:type':
+        return _handle_auto_templates_type(chat_id, user_id, text, saved)
+    if state == 'content:auto_templates:length':
+        return _handle_auto_templates_length(chat_id, user_id, text, saved)
+    if state == 'content:auto_templates:link':
+        return _handle_auto_templates_link(chat_id, user_id, text, saved)
+    if state == 'content:auto_templates:confirm':
+        return _handle_auto_templates_confirm(chat_id, user_id, text, saved)
     # Channel management
     if state == 'content:channels:menu':
         if text == BTN_CHANNEL_ADD:
@@ -871,13 +880,37 @@ def start_channel_posting(chat_id: int, user_id: int, channel_id: int):
 
 # ==================== OTHER MENUS ====================
 def show_auto_templates(chat_id: int, user_id: int):
-    """Show auto-generated templates (from generated_content folder)"""
-    send_message(chat_id,
-        "📄 <b>Шаблоны (авто)</b>\n"
-        "Авто-сгенерированные шаблоны сохраняются в папку «Сгенерированные».\n"
-        "Откройте раздел шаблонов для просмотра.",
-        kb_content_menu()
-    )
+    """Start auto-template generation flow"""
+    # Check YaGPT API key
+    settings = DB.get_user_settings(user_id)
+    if not settings.get('yagpt_api_key') or not settings.get('yagpt_folder_id'):
+        send_message(chat_id,
+            "❌ <b>Yandex GPT не настроен</b>\n"
+            "Для генерации шаблонов настройте API ключи:\n"
+            "⚙️ Настройки → 🔑 API ключи → Yandex GPT",
+            kb_content_menu()
+        )
+        return
+    
+    # Get folders for selection
+    folders = DB.get_template_folders(user_id)
+    
+    DB.set_user_state(user_id, 'content:auto_templates:folder', {'template_ids': []})
+    
+    if folders:
+        # Show folder selection
+        from core.keyboards import kb_inline_template_folders
+        send_message(chat_id,
+            "📄 <b>Авто-создание шаблонов</b>\n\n"
+            "<b>Шаг 1/6:</b> Выберите папку для сохранения новых шаблонов:",
+            kb_inline_template_folders(folders, 'auto_templates')
+        )
+        send_message(chat_id, "👆 Выберите папку выше или создайте новую в разделе «📄 Шаблоны»", kb_back_cancel())
+    else:
+        # No folders - create in root
+        saved = {'folder_id': None, 'template_ids': []}
+        DB.set_user_state(user_id, 'content:auto_templates:templates', saved)
+        start_template_selection(chat_id, user_id, saved)
 
 def show_content_plan(chat_id: int, user_id: int):
     """Show content plan with calendar and scheduled posts"""
@@ -1579,6 +1612,225 @@ def handle_content_plan_callback(chat_id: int, msg_id: int, user_id: int, data: 
     
     return False
 
+# ==================== AUTO TEMPLATES GENERATION ====================
+
+def start_template_selection(chat_id: int, user_id: int, saved: dict):
+    """Start template selection for auto-generation"""
+    templates = DB.get_templates(user_id, folder_id=saved.get('folder_id'))
+    
+    if not templates:
+        send_message(chat_id,
+            "❌ <b>Нет шаблонов</b>\n\n"
+            "Создайте шаблоны в разделе «📄 Шаблоны» для генерации новых.",
+            kb_content_menu()
+        )
+        DB.clear_user_state(user_id)
+        return
+    
+    # Create inline keyboard with templates (multi-select)
+    buttons = []
+    for t in templates[:20]:  # Limit to 20 templates
+        name = t.get('name', 'Без имени')[:30]
+        buttons.append([{
+            'text': f"📝 {name}",
+            'callback_data': f"autotpl:{t['id']}"
+        }])
+    
+    # Add "Done" button
+    buttons.append([{
+        'text': '✅ Готово',
+        'callback_data': 'autotpl:done'
+    }])
+    
+    from core.keyboards import inline_keyboard
+    send_message(chat_id,
+        f"📄 <b>Авто-создание шаблонов</b>\n\n"
+        f"<b>Шаг 2/6:</b> Выберите исходные шаблоны (можно несколько):\n\n"
+        f"💡 <i>Нажмите на шаблоны для выбора, затем «✅ Готово»</i>",
+        inline_keyboard(buttons)
+    )
+
+def _handle_auto_templates_type(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle template type selection"""
+    type_map = {
+        '📚 Информативный': 'informative',
+        '💰 Рекомендательный': 'promotional'
+    }
+    
+    template_type = type_map.get(text)
+    if not template_type:
+        send_message(chat_id, "❌ Выберите тип из списка", kb_back_cancel())
+        return True
+    
+    saved['template_type'] = template_type
+    DB.set_user_state(user_id, 'content:auto_templates:length', saved)
+    
+    send_message(chat_id,
+        f"✅ Тип: <b>{text}</b>\n\n"
+        f"<b>Шаг 4/6:</b> Выберите длину шаблона:",
+        reply_keyboard([
+            ['📝 Короткий', '📄 Средний'],
+            ['📰 Длинный'],
+            ['◀️ Назад', '❌ Отмена']
+        ])
+    )
+    return True
+
+def _handle_auto_templates_length(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle template length selection"""
+    length_map = {
+        '📝 Короткий': 'short',
+        '📄 Средний': 'medium',
+        '📰 Длинный': 'long'
+    }
+    
+    length = length_map.get(text)
+    if not length:
+        send_message(chat_id, "❌ Выберите длину из списка", kb_back_cancel())
+        return True
+    
+    saved['length'] = length
+    template_type = saved.get('template_type', 'informative')
+    
+    if template_type == 'promotional':
+        # Need link for promotional
+        DB.set_user_state(user_id, 'content:auto_templates:link', saved)
+        send_message(chat_id,
+            f"✅ Длина: <b>{text}</b>\n\n"
+            f"<b>Шаг 5/6:</b> Введите ссылку для рекламного шаблона:\n\n"
+            f"<b>Пример:</b> <code>t.me/nupro_bot</code>",
+            kb_back_cancel()
+        )
+    else:
+        # No link needed for informative
+        saved['promotional_link'] = None
+        DB.set_user_state(user_id, 'content:auto_templates:confirm', saved)
+        show_auto_templates_confirm(chat_id, user_id, saved)
+    return True
+
+def _handle_auto_templates_link(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle promotional link input"""
+    link = text.strip()
+    
+    # Basic validation
+    if not link or len(link) < 5:
+        send_message(chat_id, "❌ Ссылка слишком короткая", kb_back_cancel())
+        return True
+    
+    # Add t.me/ if not present
+    if not link.startswith('http') and not link.startswith('t.me/'):
+        if not link.startswith('@'):
+            link = f"t.me/{link.lstrip('/')}"
+    
+    saved['promotional_link'] = link
+    DB.set_user_state(user_id, 'content:auto_templates:confirm', saved)
+    show_auto_templates_confirm(chat_id, user_id, saved)
+    return True
+
+def show_auto_templates_confirm(chat_id: int, user_id: int, saved: dict):
+    """Show confirmation before creating task"""
+    template_ids = saved.get('template_ids', [])
+    folder_id = saved.get('folder_id')
+    template_type = saved.get('template_type', 'informative')
+    length = saved.get('length', 'medium')
+    promotional_link = saved.get('promotional_link')
+    
+    # Get template names
+    template_names = []
+    for tid in template_ids:
+        t = DB.get_template(tid)
+        if t:
+            template_names.append(t.get('name', f'Шаблон #{tid}'))
+    
+    # Get folder name
+    folder_name = "Без папки"
+    if folder_id:
+        folder = DB.get_template_folder(folder_id)
+        if folder:
+            folder_name = folder.get('name', 'Неизвестно')
+    
+    type_names = {
+        'informative': '📚 Информативный',
+        'promotional': '💰 Рекомендательный'
+    }
+    
+    length_names = {
+        'short': '📝 Короткий',
+        'medium': '📄 Средний',
+        'long': '📰 Длинный'
+    }
+    
+    text = f"📋 <b>Подтверждение</b>\n\n"
+    text += f"📁 Папка: <b>{folder_name}</b>\n"
+    text += f"📝 Исходных шаблонов: <b>{len(template_ids)}</b>\n"
+    text += f"🎨 Тип: <b>{type_names.get(template_type, template_type)}</b>\n"
+    text += f"📏 Длина: <b>{length_names.get(length, length)}</b>\n"
+    
+    if promotional_link:
+        text += f"🔗 Ссылка: <code>{promotional_link}</code>\n"
+    
+    text += f"\n<b>Исходные шаблоны:</b>\n"
+    for i, name in enumerate(template_names[:5], 1):
+        text += f"{i}. {name}\n"
+    if len(template_names) > 5:
+        text += f"... и ещё {len(template_names) - 5}\n"
+    
+    send_message(chat_id, text,
+        reply_keyboard([
+            ['✅ Подтвердить'],
+            ['◀️ Назад', '❌ Отмена']
+        ])
+    )
+
+def _handle_auto_templates_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle confirmation and create VPS task"""
+    if text == '✅ Подтвердить':
+        template_ids = saved.get('template_ids', [])
+        folder_id = saved.get('folder_id')
+        template_type = saved.get('template_type', 'informative')
+        length = saved.get('length', 'medium')
+        promotional_link = saved.get('promotional_link')
+        
+        if not template_ids:
+            send_message(chat_id, "❌ Не выбраны шаблоны", kb_content_menu())
+            DB.clear_user_state(user_id)
+            return True
+        
+        # Create VPS task
+        task_data = {
+            'template_ids': template_ids,
+            'folder_id': folder_id,
+            'template_type': template_type,
+            'length': length
+        }
+        
+        if promotional_link:
+            task_data['promotional_link'] = promotional_link
+        
+        vps_task = DB.create_vps_task(
+            user_id=user_id,
+            task_type='template_auto_generate',
+            task_data=task_data,
+            priority=5
+        )
+        
+        if vps_task:
+            send_message(chat_id,
+                f"✅ <b>Задача создана!</b>\n\n"
+                f"🆔 ID: #{vps_task.get('id')}\n"
+                f"📝 Шаблонов: {len(template_ids)}\n"
+                f"⏳ Генерация начнётся в ближайшее время.\n\n"
+                f"💡 Вы получите уведомление, когда шаблоны будут готовы.",
+                kb_content_menu()
+            )
+        else:
+            send_message(chat_id, "❌ Ошибка создания задачи", kb_content_menu())
+        
+        DB.clear_user_state(user_id)
+        return True
+    
+    return False
+
 # ==================== CALLBACK HANDLER ====================
 def handle_content_callback(chat_id: int, msg_id: int, user_id: int, data: str) -> bool:
     """Handle content inline callbacks"""
@@ -1646,6 +1898,61 @@ def handle_content_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
                 ])
             )
         return True
+    
+    # Auto templates: folder selection
+    if data.startswith('tfld:') and ':auto_templates' in data:
+        parts = data.split(':')
+        folder_id = int(parts[1]) if parts[1] != '0' else None
+        state_data = DB.get_user_state(user_id)
+        if state_data and state_data.get('state', '') == 'content:auto_templates:folder':
+            saved = state_data.get('data', {})
+            saved['folder_id'] = folder_id
+            DB.set_user_state(user_id, 'content:auto_templates:templates', saved)
+            answer_callback(msg_id, "✅ Папка выбрана")
+            start_template_selection(chat_id, user_id, saved)
+        return True
+    
+    # Auto templates: template selection (multi-select)
+    if data.startswith('autotpl:'):
+        state_data = DB.get_user_state(user_id)
+        if not state_data or state_data.get('state', '') != 'content:auto_templates:templates':
+            answer_callback(msg_id, "❌ Ошибка: состояние не найдено")
+            return True
+        
+        saved = state_data.get('data', {})
+        template_ids = saved.get('template_ids', [])
+        
+        if data == 'autotpl:done':
+            # Done selecting templates
+            if not template_ids:
+                answer_callback(msg_id, "❌ Выберите хотя бы один шаблон")
+                return True
+            
+            answer_callback(msg_id, f"✅ Выбрано шаблонов: {len(template_ids)}")
+            DB.set_user_state(user_id, 'content:auto_templates:type', saved)
+            
+            send_message(chat_id,
+                f"✅ Выбрано шаблонов: <b>{len(template_ids)}</b>\n\n"
+                f"<b>Шаг 3/6:</b> Выберите тип шаблона:",
+                reply_keyboard([
+                    ['📚 Информативный', '💰 Рекомендательный'],
+                    ['◀️ Назад', '❌ Отмена']
+                ])
+            )
+        else:
+            # Toggle template selection
+            template_id = int(data.split(':')[1])
+            if template_id in template_ids:
+                template_ids.remove(template_id)
+                answer_callback(msg_id, "❌ Шаблон убран")
+            else:
+                template_ids.append(template_id)
+                answer_callback(msg_id, "✅ Шаблон выбран")
+            
+            saved['template_ids'] = template_ids
+            DB.set_user_state(user_id, 'content:auto_templates:templates', saved)
+        return True
+    
     return False
 
 def show_generated_content(chat_id: int, user_id: int, content_id: int):
