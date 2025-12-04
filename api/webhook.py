@@ -290,8 +290,8 @@ def handle_callback(callback: dict):
         return
     # Mailing callbacks
     if data.startswith('msrc:') or data.startswith('mtpl:') or data.startswith('macc:') or \
-       data.startswith('cmp:') or data.startswith('schd:') or data.startswith('delschd:') or \
-       data.startswith('task:') or data.startswith('deltask:'):
+       data.startswith('mbtpl:') or data.startswith('cmp:') or data.startswith('schd:') or \
+       data.startswith('delschd:') or data.startswith('task:') or data.startswith('deltask:'):
         handle_mailing_callback(chat_id, msg_id, user_id, data)
         return
     # Settings callbacks
