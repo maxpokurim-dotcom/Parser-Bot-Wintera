@@ -160,6 +160,64 @@ def handle_mailing(chat_id: int, user_id: int, text: str, state: str, saved: dic
     if state == 'mailing:settings':
         return handle_mailing_settings(chat_id, user_id, text, saved)
     
+    # Smart mailing settings state
+    if state == 'mailing:smart_settings':
+        return handle_smart_mailing_settings(chat_id, user_id, text, saved)
+    
+    # Base template selection state
+    if state == 'mailing:select_base_template':
+        if text == BTN_BACK or text == BTN_CANCEL:
+            saved['smart_personalization'] = False
+            DB.set_user_state(user_id, 'mailing:settings', saved)
+            show_mailing_settings_menu(chat_id, user_id, saved)
+            return True
+    
+    # Smart settings input states
+    if state == 'mailing:smart:context_depth':
+        try:
+            depth = int(text)
+            if 1 <= depth <= 20:
+                saved['context_depth'] = depth
+                DB.set_user_state(user_id, 'mailing:smart_settings', saved)
+                show_smart_mailing_settings(chat_id, user_id, saved)
+            else:
+                send_message(chat_id, "❌ Введите число от 1 до 20", kb_back_cancel())
+            return True
+        except ValueError:
+            send_message(chat_id, "❌ Введите число от 1 до 20", kb_back_cancel())
+            return True
+    
+    if state == 'mailing:smart:max_length':
+        try:
+            max_len = int(text)
+            if 100 <= max_len <= 500:
+                saved['max_response_length'] = max_len
+                DB.set_user_state(user_id, 'mailing:smart_settings', saved)
+                show_smart_mailing_settings(chat_id, user_id, saved)
+            else:
+                send_message(chat_id, "❌ Введите число от 100 до 500", kb_back_cancel())
+            return True
+        except ValueError:
+            send_message(chat_id, "❌ Введите число от 100 до 500", kb_back_cancel())
+            return True
+    
+    if state == 'mailing:smart:tone':
+        tone_map = {
+            'Нейтральный': 'neutral',
+            'Тёплый': 'warm',
+            'Мистический': 'mystical',
+            'Лаконичный': 'concise'
+        }
+        if text in tone_map:
+            saved['tone'] = tone_map[text]
+            DB.set_user_state(user_id, 'mailing:smart_settings', saved)
+            show_smart_mailing_settings(chat_id, user_id, saved)
+            return True
+        elif text == BTN_BACK:
+            DB.set_user_state(user_id, 'mailing:smart_settings', saved)
+            show_smart_mailing_settings(chat_id, user_id, saved)
+            return True
+    
     # Confirm mailing state
     if state == 'mailing:confirm':
         if text == BTN_MAIL_START:
@@ -394,10 +452,30 @@ def handle_mailing_settings(chat_id: int, user_id: int, text: str, saved: dict) 
             saved['max_response_length'] = saved.get('max_response_length', 280)
             saved['tone'] = saved.get('tone', 'neutral')
             saved['language'] = saved.get('language', 'ru')
-            # Show smart settings
-            DB.set_user_state(user_id, 'mailing:smart_settings', saved)
-            show_smart_mailing_settings(chat_id, user_id, saved)
+            # If base_template_id not set, ask to select base template
+            if not saved.get('base_template_id'):
+                DB.set_user_state(user_id, 'mailing:select_base_template', saved)
+                templates = DB.get_templates(user_id)
+                if templates:
+                    send_message(chat_id,
+                        "📝 <b>Выберите исходный шаблон для умной персонализации:</b>\n\n"
+                        "<i>Этот шаблон будет использован как основа для генерации персонализированных сообщений. "
+                        "Ссылка t.me/nupro_bot из исходного шаблона будет сохранена в сгенерированном сообщении.</i>",
+                        kb_inline_mailing_templates(templates, prefix='mbtpl:')
+                    )
+                else:
+                    send_message(chat_id,
+                        "❌ Нет шаблонов. Создайте шаблон в разделе «📄 Шаблоны».",
+                        kb_back_cancel()
+                    )
+                    saved['smart_personalization'] = False
+                    show_mailing_settings_menu(chat_id, user_id, saved)
+            else:
+                # Show smart settings
+                DB.set_user_state(user_id, 'mailing:smart_settings', saved)
+                show_smart_mailing_settings(chat_id, user_id, saved)
         else:
+            saved.pop('base_template_id', None)
             show_mailing_settings_menu(chat_id, user_id, saved)
         return True
     
@@ -447,6 +525,22 @@ def handle_mailing_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
             return True
         
         send_message(chat_id, "👤 <b>Шаг 3/3: Выберите папку аккаунтов:</b>", kb)
+        return True
+    
+    # Base template selection for smart personalization
+    if data.startswith('mbtpl:'):
+        base_template_id = int(data.split(':')[1])
+        saved['base_template_id'] = base_template_id
+        
+        # Set defaults if enabling
+        saved['context_depth'] = saved.get('context_depth', 5)
+        saved['max_response_length'] = saved.get('max_response_length', 280)
+        saved['tone'] = saved.get('tone', 'neutral')
+        saved['language'] = saved.get('language', 'ru')
+        
+        # Show smart settings
+        DB.set_user_state(user_id, 'mailing:smart_settings', saved)
+        show_smart_mailing_settings(chat_id, user_id, saved)
         return True
     
     # Account folder selection
@@ -711,6 +805,7 @@ def show_mailing_confirm(chat_id: int, user_id: int, saved: dict):
     warm_icon = '✅' if saved.get('use_warm_start', True) else '❌'
     typing_icon = '✅' if saved.get('use_typing', True) else '❌'
     adaptive_icon = '✅' if saved.get('use_adaptive', True) else '❌'
+    smart_icon = '✅' if saved.get('smart_personalization', False) else '❌'
     
     # Check cache TTL
     cache_ttl = settings.get('mailing_cache_ttl', 30) or 30
@@ -721,17 +816,24 @@ def show_mailing_confirm(chat_id: int, user_id: int, saved: dict):
     if source and source.get('keyword_filter'):
         kw_info = f"\n🔑 <b>Ключевые слова:</b> {len(source['keyword_filter'])} шт."
     
+    # Base template info for smart personalization
+    base_template_info = ""
+    if saved.get('smart_personalization') and saved.get('base_template_id'):
+        base_template = DB.get_template(saved.get('base_template_id'))
+        if base_template:
+            base_template_info = f"\n🧠 <b>Исходный шаблон:</b> {base_template['name']}"
+    
     send_message(chat_id,
         f"📤 <b>Подтверждение рассылки</b>\n\n"
         f"📊 <b>Аудитория:</b> {source['source_link'] if source else '?'}{kw_info}\n"
         f"👥 <b>Получателей:</b> {stats.get('remaining', 0)}\n\n"
-        f"📝 <b>Шаблон:</b> {template['name'] if template else '?'}\n\n"
+        f"📝 <b>Шаблон:</b> {template['name'] if template else '?'}{base_template_info}\n\n"
         f"📁 <b>Папка аккаунтов:</b> {folder_name}\n"
         f"👤 <b>Активных аккаунтов:</b> {active_count}\n"
         f"💳 <b>Доступно сообщений:</b> {total_available}\n\n"
         f"⏱ <b>Задержка:</b> {delay_min}-{delay_max} сек{cache_info}\n\n"
         f"<b>Настройки:</b>\n"
-        f"{warm_icon} Тёплый старт | {typing_icon} Печать | {adaptive_icon} Адаптив",
+        f"{warm_icon} Тёплый старт | {typing_icon} Печать | {adaptive_icon} Адаптив | {smart_icon} Умная персонализация",
         kb_mailing_confirm()
     )
 
@@ -789,7 +891,8 @@ def start_mailing_now(chat_id: int, user_id: int, saved: dict):
         context_depth=saved.get('context_depth', 5),
         max_response_length=saved.get('max_response_length', 280),
         tone=saved.get('tone', 'neutral'),
-        language=saved.get('language', 'ru')
+        language=saved.get('language', 'ru'),
+        base_template_id=saved.get('base_template_id')
     )
     
     DB.clear_user_state(user_id)
@@ -1173,4 +1276,5 @@ def parse_schedule_time(text: str) -> datetime:
         logger.error(f"parse_schedule_time error: {e}")
     
     return None
+
 
