@@ -167,9 +167,9 @@ def handle_mailing(chat_id: int, user_id: int, text: str, state: str, saved: dic
     # Base template selection state
     if state == 'mailing:select_base_template':
         if text == BTN_BACK or text == BTN_CANCEL:
-            saved['smart_personalization'] = False
-            DB.set_user_state(user_id, 'mailing:settings', saved)
-            show_mailing_settings_menu(chat_id, user_id, saved)
+            # Go back to source selection
+            DB.set_user_state(user_id, 'mailing:select_source', saved)
+            _show_source_selection(chat_id, user_id, saved)
             return True
     
     # Smart settings input states
@@ -500,17 +500,35 @@ def handle_mailing_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
     if data.startswith('msrc:'):
         source_id = int(data.split(':')[1])
         saved['source_id'] = source_id
-        DB.set_user_state(user_id, 'mailing:select_template', saved)
         
-        templates = DB.get_templates(user_id)
-        if not templates:
-            send_message(chat_id, "❌ Нет шаблонов. Создайте в разделе «📄 Шаблоны».", kb_mailing_menu())
-            return True
-        
-        send_message(chat_id, "📝 <b>Шаг 2/3: Выберите шаблон:</b>", kb_inline_mailing_templates(templates))
+        # Check if smart mailing
+        if saved.get('smart_personalization'):
+            # Smart mailing: source → base template → accounts
+            DB.set_user_state(user_id, 'mailing:select_base_template', saved)
+            templates = DB.get_templates(user_id)
+            if not templates:
+                send_message(chat_id, 
+                    "❌ Нет шаблонов. Создайте в разделе «📄 Шаблоны».", 
+                    kb_mailing_menu()
+                )
+                return True
+            send_message(chat_id,
+                "📝 <b>Шаг 2: Выберите исходный шаблон:</b>\n\n"
+                "<i>Этот шаблон будет использован как основа для генерации персонализированных сообщений. "
+                "Ссылка t.me/nupro_bot из исходного шаблона будет сохранена в сгенерированном сообщении.</i>",
+                kb_inline_mailing_templates(templates, prefix='mbtpl:')
+            )
+        else:
+            # Regular mailing: source → template → accounts
+            DB.set_user_state(user_id, 'mailing:select_template', saved)
+            templates = DB.get_templates(user_id)
+            if not templates:
+                send_message(chat_id, "❌ Нет шаблонов. Создайте в разделе «📄 Шаблоны».", kb_mailing_menu())
+                return True
+            send_message(chat_id, "📝 <b>Шаг 2: Выберите шаблон:</b>", kb_inline_mailing_templates(templates))
         return True
     
-    # Template selection
+    # Template selection (for regular mailing)
     if data.startswith('mtpl:'):
         template_id = int(data.split(':')[1])
         saved['template_id'] = template_id
@@ -524,36 +542,34 @@ def handle_mailing_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
             send_message(chat_id, "❌ Нет активных аккаунтов", kb_mailing_menu())
             return True
         
-        send_message(chat_id, "👤 <b>Шаг 3/3: Выберите папку аккаунтов:</b>", kb)
+        send_message(chat_id, "👤 <b>Шаг 3: Выберите папку аккаунтов:</b>", kb)
         return True
     
     # Base template selection for smart personalization
     if data.startswith('mbtpl:'):
         base_template_id = int(data.split(':')[1])
         saved['base_template_id'] = base_template_id
-        
-        # Set defaults if enabling
-        saved['context_depth'] = saved.get('context_depth', 5)
-        saved['max_response_length'] = saved.get('max_response_length', 280)
-        saved['tone'] = saved.get('tone', 'neutral')
-        saved['language'] = saved.get('language', 'ru')
+        saved['template_id'] = base_template_id  # Also set as regular template_id for compatibility
         
         # Get template name for confirmation
         template = DB.get_template(base_template_id)
         template_name = template['name'] if template else f"#{base_template_id}"
         
-        # Return to mailing settings menu with confirmation
-        DB.set_user_state(user_id, 'mailing:settings', saved)
+        # Go to account selection
+        DB.set_user_state(user_id, 'mailing:select_accounts', saved)
+        folders = DB.get_account_folders(user_id)
+        accounts = DB.get_accounts_without_folder(user_id)
+        
+        kb = kb_inline_mailing_acc_folders(folders, accounts)
+        if not kb or not kb.get('inline_keyboard'):
+            send_message(chat_id, "❌ Нет активных аккаунтов", kb_mailing_menu())
+            return True
+        
         send_message(chat_id,
             f"✅ <b>Исходный шаблон выбран:</b> {template_name}\n\n"
-            "Теперь настройте параметры умной персонализации или нажмите «✅ Готово» для продолжения.",
-            reply_keyboard([
-                ['🧠 Умная персонализация: ВКЛ ✅'],
-                ['✅ Готово'],
-                ['◀️ Назад']
-            ])
+            "👤 <b>Шаг 3: Выберите папку аккаунтов:</b>",
+            kb
         )
-        show_mailing_settings_menu(chat_id, user_id, saved)
         return True
     
     # Account folder selection
@@ -617,7 +633,7 @@ def handle_mailing_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
 
 
 def start_new_mailing(chat_id: int, user_id: int):
-    """Start new mailing flow"""
+    """Start new mailing flow - first step: choose smart or regular mailing"""
     # Check system status
     if DB.is_system_paused(user_id):
         send_message(chat_id,
@@ -627,6 +643,24 @@ def start_new_mailing(chat_id: int, user_id: int):
         )
         return
     
+    # First step: choose mailing type
+    DB.set_user_state(user_id, 'mailing:choose_type', {})
+    send_message(chat_id,
+        "📤 <b>Новая рассылка</b>\n\n"
+        "Выберите тип рассылки:\n\n"
+        "🧠 <b>Умная рассылка</b> — персонализированные сообщения на основе контекста пользователей\n"
+        "📝 <b>Обычная рассылка</b> — стандартная рассылка по шаблону\n\n"
+        "<i>Умная рассылка использует ИИ для генерации персональных сообщений на основе истории сообщений пользователей.</i>",
+        reply_keyboard([
+            ['🧠 Умная рассылка'],
+            ['📝 Обычная рассылка'],
+            ['◀️ Назад']
+        ])
+    )
+
+
+def _show_source_selection(chat_id: int, user_id: int, saved: dict):
+    """Show source selection (common for both smart and regular mailing)"""
     sources = DB.get_audience_sources(user_id, status='completed')
     
     if not sources:
@@ -655,8 +689,11 @@ def start_new_mailing(chat_id: int, user_id: int):
         )
         return
     
-    DB.set_user_state(user_id, 'mailing:select_source')
-    send_message(chat_id, "📊 <b>Шаг 1/3: Выберите аудиторию:</b>", kb_inline_mailing_sources(valid))
+    mailing_type = "умной" if saved.get('smart_personalization') else "обычной"
+    send_message(chat_id, 
+        f"📊 <b>Шаг 1: Выберите аудиторию для {mailing_type} рассылки:</b>", 
+        kb_inline_mailing_sources(valid)
+    )
     send_message(chat_id, "👆 Выберите аудиторию выше", kb_back_cancel())
 
 
