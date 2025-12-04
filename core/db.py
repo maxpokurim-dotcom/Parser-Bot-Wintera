@@ -2339,10 +2339,11 @@ class DB:
             'use_time_optimization': True,
             'time_optimization': time_optimization,
             'smart_personalization': smart_personalization,
-            'context_depth': context_depth if smart_personalization else 0,
-            'max_response_length': max_response_length if smart_personalization else 0,
-            'tone': tone if smart_personalization else 'neutral',
-            'language': language if smart_personalization else 'ru',
+            # Only set smart mailing fields if smart_personalization is enabled
+            'context_depth': context_depth if smart_personalization else None,
+            'max_response_length': max_response_length if smart_personalization else None,
+            'tone': tone if smart_personalization else None,
+            'language': language if smart_personalization else None,
             'created_at': now_moscow().isoformat()
         }
         
@@ -2351,8 +2352,10 @@ class DB:
             data['account_folder_id'] = normalized_folder_id
         
         # Only add base_template_id if it's set and smart_personalization is enabled
+        # base_template_id can be the same as template_id (it's the base template for generation)
         if smart_personalization and base_template_id:
             data['base_template_id'] = base_template_id
+            logger.info(f"Smart mailing: template_id={template_id}, base_template_id={base_template_id}")
         
         if scheduled_at:
             data['scheduled_at'] = scheduled_at.isoformat()
