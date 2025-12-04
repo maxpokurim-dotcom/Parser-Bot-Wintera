@@ -2056,11 +2056,66 @@ class DB:
         source = cls._select('audience_sources', filters={'id': source_id}, single=True)
         if not source:
             return False
+        
+        # Extract source_chat_id from source_link (e.g., "https://t.me/magiyarunes" -> "magiyarunes")
+        source_link = source.get('source_link', '')
+        owner_id = source.get('owner_id')
+        
+        # Try to get source_chat_id from source_link
+        source_chat_id = None
+        if source_link:
+            # Extract username from link (remove @ if present, get last part after /)
+            # Handle formats: "https://t.me/magiyarunes", "t.me/magiyarunes", "@magiyarunes", "magiyarunes"
+            source_link_clean = source_link.strip().rstrip('/')
+            if source_link_clean.startswith('http'):
+                parts = source_link_clean.split('/')
+                source_chat_id = parts[-1].lstrip('@') if parts else None
+            elif source_link_clean.startswith('t.me/'):
+                source_chat_id = source_link_clean.split('t.me/')[-1].lstrip('@')
+            elif source_link_clean.startswith('@'):
+                source_chat_id = source_link_clean.lstrip('@')
+            else:
+                source_chat_id = source_link_clean.lstrip('@')
+        
+        # Delete related data
         cls._delete('campaigns', {'source_id': source_id})
         cls._delete('scheduled_mailings', {'source_id': source_id})
         cls._delete('parsed_audiences', {'source_id': source_id})
         cls._delete('keyword_filters', {'source_id': source_id})
         cls._delete('audience_segments', {'source_id': source_id})
+        
+        # Delete audience_users and user_messages for this source
+        if owner_id and source_chat_id:
+            # Get all tg_user_ids from audience_users for this source
+            audience_users = cls._select('audience_users', 
+                filters={'owner_id': owner_id, 'source_chat_id': source_chat_id})
+            
+            if audience_users:
+                tg_user_ids = [user.get('tg_user_id') for user in audience_users if user.get('tg_user_id')]
+                
+                logger.info(f"Deleting {len(audience_users)} audience_users and messages for {len(tg_user_ids)} users from source {source_id} (chat: {source_chat_id})")
+                
+                # Delete user_messages for these users
+                if tg_user_ids:
+                    deleted_messages = 0
+                    for tg_user_id in tg_user_ids:
+                        # Count messages before deletion for logging
+                        msg_count = cls._count('user_messages', {'owner_id': owner_id, 'tg_user_id': tg_user_id})
+                        if msg_count > 0:
+                            cls._delete('user_messages', {'owner_id': owner_id, 'tg_user_id': tg_user_id})
+                            deleted_messages += msg_count
+                    
+                    logger.info(f"Deleted {deleted_messages} user_messages for source {source_id}")
+                
+                # Delete audience_users
+                deleted_users = cls._count('audience_users', {'owner_id': owner_id, 'source_chat_id': source_chat_id})
+                cls._delete('audience_users', {'owner_id': owner_id, 'source_chat_id': source_chat_id})
+                logger.info(f"Deleted {deleted_users} audience_users for source {source_id}")
+            else:
+                logger.debug(f"No audience_users found for source {source_id} (chat: {source_chat_id})")
+        else:
+            logger.warning(f"Cannot delete audience_users/user_messages: owner_id={owner_id}, source_chat_id={source_chat_id}")
+        
         return cls._delete('audience_sources', {'id': source_id})
 
     @classmethod
