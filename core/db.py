@@ -2201,7 +2201,13 @@ class DB:
                        settings: Dict = None, use_warm_start: bool = True,
                        use_typing: bool = True, use_adaptive: bool = True,
                        scheduled_at: datetime = None,
-                       time_optimization: str = 'now') -> Optional[Dict]:
+                       time_optimization: str = 'now',
+                       smart_personalization: bool = False,
+                       context_depth: int = 5,
+                       max_response_length: int = 280,
+                       tone: str = 'neutral',
+                       language: str = 'ru',
+                       base_template_id: int = None) -> Optional[Dict]:
         stats = cls.get_audience_stats(source_id)
         
         data = {
@@ -2223,6 +2229,12 @@ class DB:
             'use_adaptive_delays': use_adaptive,
             'use_time_optimization': True,
             'time_optimization': time_optimization,
+            'smart_personalization': smart_personalization,
+            'context_depth': context_depth if smart_personalization else 0,
+            'max_response_length': max_response_length if smart_personalization else 0,
+            'tone': tone if smart_personalization else 'neutral',
+            'language': language if smart_personalization else 'ru',
+            'base_template_id': base_template_id,
             'created_at': now_moscow().isoformat()
         }
         
