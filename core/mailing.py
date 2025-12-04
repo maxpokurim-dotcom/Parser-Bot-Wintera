@@ -538,9 +538,22 @@ def handle_mailing_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
         saved['tone'] = saved.get('tone', 'neutral')
         saved['language'] = saved.get('language', 'ru')
         
-        # Show smart settings
-        DB.set_user_state(user_id, 'mailing:smart_settings', saved)
-        show_smart_mailing_settings(chat_id, user_id, saved)
+        # Get template name for confirmation
+        template = DB.get_template(base_template_id)
+        template_name = template['name'] if template else f"#{base_template_id}"
+        
+        # Return to mailing settings menu with confirmation
+        DB.set_user_state(user_id, 'mailing:settings', saved)
+        send_message(chat_id,
+            f"✅ <b>Исходный шаблон выбран:</b> {template_name}\n\n"
+            "Теперь настройте параметры умной персонализации или нажмите «✅ Готово» для продолжения.",
+            reply_keyboard([
+                ['🧠 Умная персонализация: ВКЛ ✅'],
+                ['✅ Готово'],
+                ['◀️ Назад']
+            ])
+        )
+        show_mailing_settings_menu(chat_id, user_id, saved)
         return True
     
     # Account folder selection
