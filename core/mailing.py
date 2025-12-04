@@ -791,11 +791,6 @@ def start_mailing_now(chat_id: int, user_id: int, saved: dict):
         tone=saved.get('tone', 'neutral'),
         language=saved.get('language', 'ru')
     )
-        context_depth=saved.get('context_depth', 5),
-        max_response_length=saved.get('max_response_length', 280),
-        tone=saved.get('tone', 'neutral'),
-        language=saved.get('language', 'ru')
-    )
     
     DB.clear_user_state(user_id)
     
@@ -1178,3 +1173,4 @@ def parse_schedule_time(text: str) -> datetime:
         logger.error(f"parse_schedule_time error: {e}")
     
     return None
+
