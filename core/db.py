@@ -2881,7 +2881,8 @@ class DB:
     @classmethod
     def create_scheduled_content(cls, user_id: int, channel_id: int, content: str,
                                  scheduled_at: datetime, repeat_mode: str = 'once',
-                                 media_url: str = None, media_type: str = None) -> Optional[Dict]:
+                                 media_url: str = None, media_type: str = None,
+                                 title: str = None) -> Optional[Dict]:
         """Создать запланированный контент"""
         data = {
             'owner_id': user_id,
@@ -2895,6 +2896,8 @@ class DB:
         if media_url:
             data['media_url'] = media_url
             data['media_type'] = media_type
+        if title:
+            data['title'] = title
         return cls._insert('scheduled_content', data)
 
     @classmethod
@@ -2944,7 +2947,8 @@ class DB:
 
     @classmethod
     def create_template_schedule(cls, user_id: int, template_id: int, 
-                                channel_id: int, publish_time: str) -> Optional[Dict]:
+                                channel_id: int, publish_time: str, 
+                                repeat_mode: str = 'daily') -> Optional[Dict]:
         """Создать расписание публикации шаблона"""
         data = {
             'owner_id': user_id,
@@ -2952,6 +2956,8 @@ class DB:
             'channel_id': channel_id,
             'publish_time': publish_time,
             'is_active': True,
+            'status': 'active',  # Синхронизируется с is_active через триггер
+            'repeat_mode': repeat_mode,
             'created_at': now_moscow().isoformat()
         }
         return cls._insert('template_schedules', data)
