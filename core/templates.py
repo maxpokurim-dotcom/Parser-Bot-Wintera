@@ -291,8 +291,15 @@ def handle_templates(chat_id: int, user_id: int, text: str, state: str, saved: d
 def handle_templates_callback(chat_id: int, msg_id: int, user_id: int, data: str) -> bool:
     """Handle template inline callbacks"""
     
-    # Skip auto_templates callbacks - they are handled in handle_content_callback
+    # CRITICAL: Skip auto_templates callbacks - they are handled in handle_content_callback
+    # This should never be called for auto_templates callbacks, but adding extra protection
     if ':auto_templates' in data:
+        import logging
+        logging.error(
+            f"CRITICAL: handle_templates_callback received auto_templates callback! "
+            f"This should be handled in handle_content_callback. "
+            f"User: {user_id}, Callback: {data}"
+        )
         return False
     
     # Template selection
@@ -301,8 +308,8 @@ def handle_templates_callback(chat_id: int, msg_id: int, user_id: int, data: str
         show_template_view(chat_id, user_id, template_id)
         return True
     
-    # Folder selection
-    if data.startswith('tfld:'):
+    # Folder selection (but NOT for auto_templates - those are handled in handle_content_callback)
+    if data.startswith('tfld:') and ':auto_templates' not in data:
         folder_id = int(data.split(':')[1])
         show_folder_view(chat_id, user_id, folder_id)
         return True
