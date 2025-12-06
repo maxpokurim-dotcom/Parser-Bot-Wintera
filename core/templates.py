@@ -291,6 +291,10 @@ def handle_templates(chat_id: int, user_id: int, text: str, state: str, saved: d
 def handle_templates_callback(chat_id: int, msg_id: int, user_id: int, data: str) -> bool:
     """Handle template inline callbacks"""
     
+    # Skip auto_templates callbacks - they are handled in handle_content_callback
+    if ':auto_templates' in data:
+        return False
+    
     # Template selection
     if data.startswith('tpl:'):
         template_id = int(data.split(':')[1])
