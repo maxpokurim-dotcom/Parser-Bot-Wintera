@@ -171,8 +171,8 @@ def handle_content(chat_id: int, user_id: int, text: str, state: str, saved: dic
         return _handle_auto_templates_type(chat_id, user_id, text, saved)
     if state == 'content:auto_templates:length':
         return _handle_auto_templates_length(chat_id, user_id, text, saved)
-    if state == 'content:auto_templates:link':
-        return _handle_auto_templates_link(chat_id, user_id, text, saved)
+    if state == 'content:auto_templates:prompt':
+        return _handle_auto_templates_prompt(chat_id, user_id, text, saved)
     if state == 'content:auto_templates:confirm':
         return _handle_auto_templates_confirm(chat_id, user_id, text, saved)
     # Channel management
@@ -1651,22 +1651,31 @@ def start_template_selection(chat_id: int, user_id: int, saved: dict):
     )
 
 def _handle_auto_templates_type(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle template type selection"""
-    type_map = {
-        '📚 Информативный': 'informative',
-        '💰 Рекомендательный': 'promotional'
+    """Handle template filter/type selection"""
+    # 10 different filter types for template generation
+    filter_map = {
+        '🎓 Эксперт': 'expert',
+        '👋 Друг': 'friend',
+        '📢 Реклама': 'promotional',
+        '💼 Деловой': 'business',
+        '🎭 Креативный': 'creative',
+        '📚 Образовательный': 'educational',
+        '💬 Разговорный': 'conversational',
+        '🔥 Энергичный': 'energetic',
+        '🤝 Поддерживающий': 'supportive',
+        '🎯 Прямой': 'direct'
     }
     
-    template_type = type_map.get(text)
-    if not template_type:
-        send_message(chat_id, "❌ Выберите тип из списка", kb_back_cancel())
+    template_filter = filter_map.get(text)
+    if not template_filter:
+        send_message(chat_id, "❌ Выберите фильтр из списка", kb_back_cancel())
         return True
     
-    saved['template_type'] = template_type
+    saved['template_filter'] = template_filter
     DB.set_user_state(user_id, 'content:auto_templates:length', saved)
     
     send_message(chat_id,
-        f"✅ Тип: <b>{text}</b>\n\n"
+        f"✅ Фильтр: <b>{text}</b>\n\n"
         f"<b>Шаг 4/6:</b> Выберите длину шаблона:",
         reply_keyboard([
             ['📝 Короткий', '📄 Средний'],
@@ -1690,39 +1699,38 @@ def _handle_auto_templates_length(chat_id: int, user_id: int, text: str, saved: 
         return True
     
     saved['length'] = length
-    template_type = saved.get('template_type', 'informative')
+    DB.set_user_state(user_id, 'content:auto_templates:prompt', saved)
     
-    if template_type == 'promotional':
-        # Need link for promotional
-        DB.set_user_state(user_id, 'content:auto_templates:link', saved)
-        send_message(chat_id,
-            f"✅ Длина: <b>{text}</b>\n\n"
-            f"<b>Шаг 5/6:</b> Введите ссылку для рекламного шаблона:\n\n"
-            f"<b>Пример:</b> <code>t.me/nupro_bot</code>",
-            kb_back_cancel()
-        )
-    else:
-        # No link needed for informative
-        saved['promotional_link'] = None
-        DB.set_user_state(user_id, 'content:auto_templates:confirm', saved)
-        show_auto_templates_confirm(chat_id, user_id, saved)
+    send_message(chat_id,
+        f"✅ Длина: <b>{text}</b>\n\n"
+        f"<b>Шаг 5/6:</b> Введите промпт для генерации (опционально):\n\n"
+        f"💡 <i>Опишите, какой стиль или тему должен иметь шаблон.\n"
+        f"Например: \"Создай шаблон для привлечения клиентов в онлайн-школу\"\n"
+        f"Или оставьте пустым для использования стандартного промпта.</i>\n\n"
+        f"📝 Введите промпт или отправьте \"-\" для пропуска:",
+        kb_back_cancel()
+    )
     return True
 
-def _handle_auto_templates_link(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
-    """Handle promotional link input"""
-    link = text.strip()
+def _handle_auto_templates_prompt(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
+    """Handle custom prompt input"""
+    prompt = text.strip()
     
-    # Basic validation
-    if not link or len(link) < 5:
-        send_message(chat_id, "❌ Ссылка слишком короткая", kb_back_cancel())
-        return True
+    # If user sends "-", skip prompt
+    if prompt == '-' or prompt.lower() == 'пропустить':
+        saved['custom_prompt'] = None
+    else:
+        # Validate prompt length
+        if len(prompt) > 500:
+            send_message(chat_id, "❌ Промпт слишком длинный (максимум 500 символов)", kb_back_cancel())
+            return True
+        
+        if len(prompt) < 10 and prompt != '':
+            send_message(chat_id, "❌ Промпт слишком короткий (минимум 10 символов) или отправьте \"-\" для пропуска", kb_back_cancel())
+            return True
+        
+        saved['custom_prompt'] = prompt if prompt else None
     
-    # Add t.me/ if not present
-    if not link.startswith('http') and not link.startswith('t.me/'):
-        if not link.startswith('@'):
-            link = f"t.me/{link.lstrip('/')}"
-    
-    saved['promotional_link'] = link
     DB.set_user_state(user_id, 'content:auto_templates:confirm', saved)
     show_auto_templates_confirm(chat_id, user_id, saved)
     return True
@@ -1731,9 +1739,9 @@ def show_auto_templates_confirm(chat_id: int, user_id: int, saved: dict):
     """Show confirmation before creating task"""
     template_ids = saved.get('template_ids', [])
     folder_id = saved.get('folder_id')
-    template_type = saved.get('template_type', 'informative')
+    template_filter = saved.get('template_filter', 'expert')
     length = saved.get('length', 'medium')
-    promotional_link = saved.get('promotional_link')
+    custom_prompt = saved.get('custom_prompt')
     
     # Get template names
     template_names = []
@@ -1749,9 +1757,17 @@ def show_auto_templates_confirm(chat_id: int, user_id: int, saved: dict):
         if folder:
             folder_name = folder.get('name', 'Неизвестно')
     
-    type_names = {
-        'informative': '📚 Информативный',
-        'promotional': '💰 Рекомендательный'
+    filter_names = {
+        'expert': '🎓 Эксперт',
+        'friend': '👋 Друг',
+        'promotional': '📢 Реклама',
+        'business': '💼 Деловой',
+        'creative': '🎭 Креативный',
+        'educational': '📚 Образовательный',
+        'conversational': '💬 Разговорный',
+        'energetic': '🔥 Энергичный',
+        'supportive': '🤝 Поддерживающий',
+        'direct': '🎯 Прямой'
     }
     
     length_names = {
@@ -1763,11 +1779,14 @@ def show_auto_templates_confirm(chat_id: int, user_id: int, saved: dict):
     text = f"📋 <b>Подтверждение</b>\n\n"
     text += f"📁 Папка: <b>{folder_name}</b>\n"
     text += f"📝 Исходных шаблонов: <b>{len(template_ids)}</b>\n"
-    text += f"🎨 Тип: <b>{type_names.get(template_type, template_type)}</b>\n"
+    text += f"🎨 Фильтр: <b>{filter_names.get(template_filter, template_filter)}</b>\n"
     text += f"📏 Длина: <b>{length_names.get(length, length)}</b>\n"
     
-    if promotional_link:
-        text += f"🔗 Ссылка: <code>{promotional_link}</code>\n"
+    if custom_prompt:
+        prompt_preview = custom_prompt[:50] + '...' if len(custom_prompt) > 50 else custom_prompt
+        text += f"💬 Промпт: <i>{prompt_preview}</i>\n"
+    else:
+        text += f"💬 Промпт: <i>Стандартный</i>\n"
     
     text += f"\n<b>Исходные шаблоны:</b>\n"
     for i, name in enumerate(template_names[:5], 1):
@@ -1787,9 +1806,9 @@ def _handle_auto_templates_confirm(chat_id: int, user_id: int, text: str, saved:
     if text == '✅ Подтвердить':
         template_ids = saved.get('template_ids', [])
         folder_id = saved.get('folder_id')
-        template_type = saved.get('template_type', 'informative')
+        template_filter = saved.get('template_filter', 'expert')
         length = saved.get('length', 'medium')
-        promotional_link = saved.get('promotional_link')
+        custom_prompt = saved.get('custom_prompt')
         
         if not template_ids:
             send_message(chat_id, "❌ Не выбраны шаблоны", kb_content_menu())
@@ -1800,12 +1819,12 @@ def _handle_auto_templates_confirm(chat_id: int, user_id: int, text: str, saved:
         task_data = {
             'template_ids': template_ids,
             'folder_id': folder_id,
-            'template_type': template_type,
+            'template_filter': template_filter,  # Changed from template_type
             'length': length
         }
         
-        if promotional_link:
-            task_data['promotional_link'] = promotional_link
+        if custom_prompt:
+            task_data['custom_prompt'] = custom_prompt
         
         vps_task = DB.create_vps_task(
             user_id=user_id,
@@ -1818,7 +1837,7 @@ def _handle_auto_templates_confirm(chat_id: int, user_id: int, text: str, saved:
             send_message(chat_id,
                 f"✅ <b>Задача создана!</b>\n\n"
                 f"🆔 ID: #{vps_task.get('id')}\n"
-                f"📝 Шаблонов: {len(template_ids)}\n"
+                f"📝 Исходных шаблонов: {len(template_ids)}\n"
                 f"⏳ Генерация начнётся в ближайшее время.\n\n"
                 f"💡 Вы получите уведомление, когда шаблоны будут готовы.",
                 kb_content_menu()
@@ -1933,9 +1952,13 @@ def handle_content_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
             
             send_message(chat_id,
                 f"✅ Выбрано шаблонов: <b>{len(template_ids)}</b>\n\n"
-                f"<b>Шаг 3/6:</b> Выберите тип шаблона:",
+                f"<b>Шаг 3/6:</b> Выберите фильтр для генерации:",
                 reply_keyboard([
-                    ['📚 Информативный', '💰 Рекомендательный'],
+                    ['🎓 Эксперт', '👋 Друг'],
+                    ['📢 Реклама', '💼 Деловой'],
+                    ['🎭 Креативный', '📚 Образовательный'],
+                    ['💬 Разговорный', '🔥 Энергичный'],
+                    ['🤝 Поддерживающий', '🎯 Прямой'],
                     ['◀️ Назад', '❌ Отмена']
                 ])
             )
