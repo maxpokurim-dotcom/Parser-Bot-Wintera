@@ -267,7 +267,9 @@ def handle_callback(callback: dict):
         data.startswith('trendch:') or
         data.startswith('sumch:') or
         data.startswith('cp') or
-        data.startswith('trendmon:')
+        data.startswith('trendmon:') or
+        (data.startswith('tfld:') and ':auto_templates' in data) or
+        data.startswith('autotpl:')
     ):
         handle_content_callback(chat_id, msg_id, user_id, data)
         return
@@ -280,8 +282,8 @@ def handle_callback(callback: dict):
        data.startswith('delbl:') or data.startswith('togstop:') or data.startswith('delstop:'):
         handle_audiences_callback(chat_id, msg_id, user_id, data)
         return
-    # Template callbacks
-    if data.startswith('tpl:') or data.startswith('tfld:') or data.startswith('mvtpl:') or data.startswith('selfld:'):
+    # Template callbacks (but not for auto_templates - those go to content callbacks)
+    if (data.startswith('tpl:') or data.startswith('tfld:') or data.startswith('mvtpl:') or data.startswith('selfld:')) and ':auto_templates' not in data:
         handle_templates_callback(chat_id, msg_id, user_id, data)
         return
     # Account callbacks
