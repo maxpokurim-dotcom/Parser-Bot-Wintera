@@ -263,10 +263,13 @@ def handle_callback(callback: dict):
     # tfld:...:auto_templates - выбор папки для автосоздания шаблонов
     # autotpl: - выбор исходных шаблонов для автосоздания
     # IMPORTANT: Check auto_templates callbacks FIRST before template callbacks
+    # This MUST be before template callbacks to prevent routing to wrong handler
     if data.startswith('autotpl:'):
+        logging.info(f"Routing autotpl callback to handle_content_callback: {data}")
         handle_content_callback(chat_id, msg_id, user_id, data)
         return
     if data.startswith('tfld:') and ':auto_templates' in data:
+        logging.info(f"Routing tfld:...:auto_templates callback to handle_content_callback: {data}")
         handle_content_callback(chat_id, msg_id, user_id, data)
         return
     if (
