@@ -167,6 +167,21 @@ def handle_content(chat_id: int, user_id: int, text: str, state: str, saved: dic
     if state == 'content:summary:confirm':
         return _handle_summary_confirm(chat_id, user_id, text, saved)
     # Auto templates generation flow
+    # States: folder, templates (handled via callbacks), type, length, prompt, confirm
+    if state == 'content:auto_templates:folder':
+        # Folder selection is handled via callback, but if user sends text, show message
+        send_message(chat_id,
+            "👆 Выберите папку из списка выше или нажмите «📁 Без папки»",
+            kb_back_cancel()
+        )
+        return True
+    if state == 'content:auto_templates:templates':
+        # Template selection is handled via callback, but if user sends text, show message
+        send_message(chat_id,
+            "👆 Выберите исходные шаблоны из списка выше, затем нажмите «✅ Готово»",
+            kb_back_cancel()
+        )
+        return True
     if state == 'content:auto_templates:type':
         return _handle_auto_templates_type(chat_id, user_id, text, saved)
     if state == 'content:auto_templates:length':
