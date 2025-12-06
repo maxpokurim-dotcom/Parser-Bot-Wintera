@@ -2226,12 +2226,24 @@ def handle_content_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
         parts = data.split(':')
         folder_id = int(parts[1]) if parts[1] != '0' else None
         state_data = DB.get_user_state(user_id)
+        
+        # Check if we're in auto_templates flow
         if state_data and state_data.get('state', '') == 'content:auto_templates:folder':
             saved = state_data.get('data', {})
             saved['folder_id'] = folder_id
-            DB.set_user_state(user_id, 'content:auto_templates:templates', saved)
-            answer_callback(msg_id, "✅ Папка выбрана")
-            start_template_selection(chat_id, user_id, saved)
+            try:
+                DB.set_user_state(user_id, 'content:auto_templates:templates', saved)
+                answer_callback(msg_id, "✅ Папка выбрана")
+                start_template_selection(chat_id, user_id, saved)
+            except Exception as e:
+                logger.error(f"Error in auto_templates folder selection for user {user_id}: {e}", exc_info=True)
+                answer_callback(msg_id, "❌ Ошибка выбора папки")
+                send_message(chat_id, "❌ Произошла ошибка. Попробуйте еще раз.", kb_content_menu())
+        else:
+            # State mismatch - user might have navigated away
+            logger.warning(f"Auto templates folder callback received but state is not 'content:auto_templates:folder' for user {user_id}, state={state_data.get('state') if state_data else 'None'}")
+            answer_callback(msg_id, "❌ Сессия истекла")
+            send_message(chat_id, "❌ Сессия истекла. Начните заново.", kb_content_menu())
         return True
     
     # Auto templates: template selection (multi-select)
