@@ -2223,27 +2223,41 @@ def handle_content_callback(chat_id: int, msg_id: int, user_id: int, data: str) 
     
     # Auto templates: folder selection
     if data.startswith('tfld:') and ':auto_templates' in data:
+        logger.info(f"Auto templates folder callback received: {data} for user {user_id}")
         parts = data.split(':')
         folder_id = int(parts[1]) if parts[1] != '0' else None
         state_data = DB.get_user_state(user_id)
+        current_state = state_data.get('state', '') if state_data else 'None'
+        
+        logger.info(f"Current state for user {user_id}: {current_state}, expected: content:auto_templates:folder")
         
         # Check if we're in auto_templates flow
-        if state_data and state_data.get('state', '') == 'content:auto_templates:folder':
+        if state_data and current_state == 'content:auto_templates:folder':
             saved = state_data.get('data', {})
             saved['folder_id'] = folder_id
             try:
                 DB.set_user_state(user_id, 'content:auto_templates:templates', saved)
                 answer_callback(msg_id, "✅ Папка выбрана")
+                logger.info(f"State updated to content:auto_templates:templates for user {user_id}, folder_id={folder_id}")
                 start_template_selection(chat_id, user_id, saved)
             except Exception as e:
                 logger.error(f"Error in auto_templates folder selection for user {user_id}: {e}", exc_info=True)
                 answer_callback(msg_id, "❌ Ошибка выбора папки")
                 send_message(chat_id, "❌ Произошла ошибка. Попробуйте еще раз.", kb_content_menu())
         else:
-            # State mismatch - user might have navigated away
-            logger.warning(f"Auto templates folder callback received but state is not 'content:auto_templates:folder' for user {user_id}, state={state_data.get('state') if state_data else 'None'}")
+            # State mismatch - user might have navigated away or callback went to wrong handler
+            logger.error(
+                f"CRITICAL: Auto templates folder callback received but state mismatch! "
+                f"User {user_id}, callback={data}, current_state={current_state}, "
+                f"expected=content:auto_templates:folder. "
+                f"This should NOT happen - callback should be handled in handle_content_callback!"
+            )
             answer_callback(msg_id, "❌ Сессия истекла")
-            send_message(chat_id, "❌ Сессия истекла. Начните заново.", kb_content_menu())
+            send_message(chat_id, 
+                "❌ Ошибка: сессия истекла или произошла ошибка обработки.\n"
+                "Начните заново: 📝 Контент → 📄 Шаблоны (авто)",
+                kb_content_menu()
+            )
         return True
     
     # Auto templates: template selection (multi-select)
