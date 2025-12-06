@@ -293,7 +293,15 @@ def handle_callback(callback: dict):
         handle_audiences_callback(chat_id, msg_id, user_id, data)
         return
     # Template callbacks (but not for auto_templates - those go to content callbacks)
-    if (data.startswith('tpl:') or data.startswith('tfld:') or data.startswith('mvtpl:') or data.startswith('selfld:')) and ':auto_templates' not in data:
+    # CRITICAL: Must check for auto_templates BEFORE checking for tfld: to prevent wrong routing
+    if ':auto_templates' in data:
+        # This should have been handled above, but double-check
+        logging.error(f"CRITICAL: Template callback with auto_templates not handled earlier! Callback: {data}")
+        if data.startswith('tfld:') or data.startswith('autotpl:'):
+            handle_content_callback(chat_id, msg_id, user_id, data)
+            return
+    
+    if (data.startswith('tpl:') or data.startswith('tfld:') or data.startswith('mvtpl:') or data.startswith('selfld:')):
         handle_templates_callback(chat_id, msg_id, user_id, data)
         return
     # Account callbacks
