@@ -244,26 +244,47 @@ def _handle_back(chat_id: int, user_id: int, state: str, saved: dict):
 
 def start_post_generation(chat_id: int, user_id: int):
     """Start post generation flow"""
-    # Check YaGPT API key
-    settings = DB.get_user_settings(user_id)
-    if not settings.get('yagpt_api_key') or not settings.get('yagpt_folder_id'):
+    try:
+        # Check YaGPT API key
+        try:
+            settings = DB.get_user_settings(user_id)
+        except Exception as e:
+            logger.error(f"Error getting user settings for {user_id}: {e}")
+            send_message(chat_id,
+                "❌ <b>Ошибка загрузки настроек</b>\n"
+                "Попробуйте позже или обратитесь в поддержку.",
+                kb_content_menu()
+            )
+            return
+        
+        if not settings or not settings.get('yagpt_api_key') or not settings.get('yagpt_folder_id'):
+            send_message(chat_id,
+                "❌ <b>Yandex GPT не настроен</b>\n"
+                "Для генерации постов настройте API ключи:\n"
+                "⚙️ Настройки → 🔑 API ключи → Yandex GPT",
+                kb_content_menu()
+            )
+            return
+        
+        try:
+            DB.set_user_state(user_id, 'content:gen:topic', {})
+        except Exception as e:
+            logger.error(f"Error setting user state for {user_id}: {e}")
+            send_message(chat_id, "❌ Ошибка инициализации. Попробуйте позже.", kb_content_menu())
+            return
+        
         send_message(chat_id,
-            "❌ <b>Yandex GPT не настроен</b>\n"
-            "Для генерации постов настройте API ключи:\n"
-            "⚙️ Настройки → 🔑 API ключи → Yandex GPT",
-            kb_content_menu()
+            "✍️ <b>Генерация поста</b>\n"
+            "Введите тему или ключевые слова для поста:\n"
+            "Примеры:\n"
+            "• <code>автоматизация Telegram-маркетинга</code>\n"
+            "• <code>как прогреть аккаунт перед рассылкой</code>\n"
+            "• <code>ИИ в управлении Telegram-каналами</code>",
+            kb_back_cancel()
         )
-        return
-    DB.set_user_state(user_id, 'content:gen:topic', {})
-    send_message(chat_id,
-        "✍️ <b>Генерация поста</b>\n"
-        "Введите тему или ключевые слова для поста:\n"
-        "Примеры:\n"
-        "• <code>автоматизация Telegram-маркетинга</code>\n"
-        "• <code>как прогреть аккаунт перед рассылкой</code>\n"
-        "• <code>ИИ в управлении Telegram-каналами</code>",
-        kb_back_cancel()
-    )
+    except Exception as e:
+        logger.error(f"Unexpected error in start_post_generation for user {user_id}: {e}", exc_info=True)
+        send_message(chat_id, "❌ Произошла ошибка. Попробуйте позже.", kb_content_menu())
 
 def _handle_gen_topic(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle topic input"""
@@ -389,51 +410,103 @@ def _show_generation_confirmation(chat_id: int, user_id: int, saved: dict):
 def _handle_gen_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle generation confirmation"""
     if text in ['✏️ Редактировать', '🔄 Другой вариант', '📤 В канал', '💾 Сохранить']:
-        # Save task to DB
-        task = DB.save_generated_content(
-            user_id=user_id,
-            content="",
-            content_type='post',
-            title=saved.get('topic', 'Без названия')[:100],
-            generation_params={
-                'topic': saved['topic'],
-                'style': saved['style'],
-                'length': saved['length'],
-                'use_trends': saved.get('use_trends', False),
-                'channel_id': saved.get('channel_id'),
-                'temperature': DB.get_user_settings(user_id).get('gpt_temperature', 0.7)
-            },
-            channel_id=saved.get('channel_id')
-        )
-        if task:
-            # Create VPS task for content generation
-            vps_task = {
-                'task_type': 'content_generate',
-                'task_data': {
-                    'topic': saved['topic'],
-                    'style': saved['style'],
-                    'length': saved['length'],
-                    'include_emoji': True,
-                    'content_type': 'post',
-                    'title': saved.get('topic', 'Без названия')[:100],
-                    'channel_id': saved.get('channel_id'),
-                    'use_trends': saved.get('use_trends', False),
-                    'generated_content_id': task['id']  # Link to generated_content
-                }
-            }
-            DB.create_vps_task(user_id, 'content_generate', vps_task)
+        try:
+            # Validate required fields
+            if not saved.get('topic'):
+                logger.error(f"Missing topic for user {user_id}")
+                send_message(chat_id, "❌ Ошибка: не указана тема", kb_content_menu())
+                return True
             
-            send_message(chat_id,
-                f"✅ <b>Задача создана!</b>\n"
-                f"🆔 ID: #{task['id']}\n"
-                f"Статус: ⏳ Ожидает генерации\n"
-                f"Результат появится в разделе «Сгенерированные»",
-                kb_content_menu()
-            )
-        else:
-            send_message(chat_id, "❌ Ошибка создания задачи", kb_content_menu())
-        DB.set_user_state(user_id, 'content:menu')
-        return True
+            # Get user settings with error handling
+            try:
+                settings = DB.get_user_settings(user_id)
+                temperature = settings.get('gpt_temperature', 0.7) if settings else 0.7
+            except Exception as e:
+                logger.error(f"Error getting user settings for {user_id}: {e}")
+                temperature = 0.7
+            
+            # Save task to DB
+            try:
+                task = DB.save_generated_content(
+                    user_id=user_id,
+                    content="",
+                    content_type='post',
+                    title=saved.get('topic', 'Без названия')[:100],
+                    generation_params={
+                        'topic': saved['topic'],
+                        'style': saved['style'],
+                        'length': saved['length'],
+                        'use_trends': saved.get('use_trends', False),
+                        'channel_id': saved.get('channel_id'),
+                        'temperature': temperature
+                    },
+                    channel_id=saved.get('channel_id')
+                )
+            except Exception as e:
+                logger.error(f"Error saving generated content for user {user_id}: {e}", exc_info=True)
+                send_message(chat_id, "❌ Ошибка сохранения задачи. Попробуйте позже.", kb_content_menu())
+                return True
+            
+            if not task:
+                logger.warning(f"Failed to create generated_content for user {user_id}")
+                send_message(chat_id, "❌ Ошибка создания задачи", kb_content_menu())
+                DB.set_user_state(user_id, 'content:menu')
+                return True
+            
+            # Create VPS task for content generation
+            try:
+                vps_task = {
+                    'task_type': 'content_generate',
+                    'task_data': {
+                        'topic': saved['topic'],
+                        'style': saved['style'],
+                        'length': saved['length'],
+                        'include_emoji': True,
+                        'content_type': 'post',
+                        'title': saved.get('topic', 'Без названия')[:100],
+                        'channel_id': saved.get('channel_id'),
+                        'use_trends': saved.get('use_trends', False),
+                        'generated_content_id': task['id']  # Link to generated_content
+                    }
+                }
+                vps_result = DB.create_vps_task(user_id, 'content_generate', vps_task)
+                
+                if not vps_result:
+                    logger.error(f"Failed to create VPS task for user {user_id}, generated_content_id={task['id']}")
+                    send_message(chat_id,
+                        f"⚠️ <b>Задача создана, но не отправлена на обработку</b>\n"
+                        f"🆔 ID: #{task['id']}\n"
+                        f"Обратитесь в поддержку.",
+                        kb_content_menu()
+                    )
+                else:
+                    logger.info(f"Created content_generate task for user {user_id}, task_id={task['id']}, vps_task_id={vps_result.get('id')}")
+                    send_message(chat_id,
+                        f"✅ <b>Задача создана!</b>\n"
+                        f"🆔 ID: #{task['id']}\n"
+                        f"Статус: ⏳ Ожидает генерации\n"
+                        f"Результат появится в разделе «Сгенерированные»",
+                        kb_content_menu()
+                    )
+            except Exception as e:
+                logger.error(f"Error creating VPS task for user {user_id}: {e}", exc_info=True)
+                send_message(chat_id,
+                    f"⚠️ <b>Задача создана, но возникла ошибка при отправке</b>\n"
+                    f"🆔 ID: #{task['id']}\n"
+                    f"Попробуйте позже или обратитесь в поддержку.",
+                    kb_content_menu()
+                )
+            
+            try:
+                DB.set_user_state(user_id, 'content:menu')
+            except Exception as e:
+                logger.error(f"Error clearing user state for {user_id}: {e}")
+            
+            return True
+        except Exception as e:
+            logger.error(f"Unexpected error in _handle_gen_confirm for user {user_id}: {e}", exc_info=True)
+            send_message(chat_id, "❌ Произошла непредвиденная ошибка. Попробуйте позже.", kb_content_menu())
+            return True
     if text == '❌ Отмена':
         show_content_menu(chat_id, user_id)
         return True
@@ -659,43 +732,97 @@ def _show_trend_confirmation(chat_id: int, user_id: int, saved: dict):
 
 def _handle_trend_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     if text == '💾 Сохранить' or text == '✅ Подтвердить':
-        # Create trend analysis task - save as generated content with type 'trend'
-        task = DB.save_generated_content(
-            user_id=user_id,
-            content="",
-            content_type='trend',
-            title=f"Анализ трендов",
-            generation_params={
-                'niche': saved.get('niche', 'general'),
-                'channel_id': saved['channel_id'],
-                'type': 'trend_analysis'
-            },
-            channel_id=saved['channel_id']
-        )
-        if task:
-            # Create VPS task for trend analysis
-            channel = DB.get_user_channel(saved['channel_id'])
-            vps_task = {
-                'task_type': 'trend_analysis',
-                'task_data': {
-                    'channel_username': channel['channel_username'] if channel else None,
-                    'channel_id': saved['channel_id'],
-                    'posts_count': 100,
-                    'niche': saved.get('niche', 'general')
-                }
-            }
-            DB.create_vps_task(user_id, 'trend_analysis', vps_task)
+        try:
+            # Validate required fields
+            if not saved.get('channel_id'):
+                logger.error(f"Missing channel_id for trend analysis, user {user_id}")
+                send_message(chat_id, "❌ Ошибка: не выбран канал", kb_content_menu())
+                return True
             
-            send_message(chat_id,
-                f"✅ <b>Анализ запущен!</b>\n"
-                f"🆔 ID: #{task['id']}\n"
-                f"Статус: ⏳ В обработке",
-                kb_content_menu()
-            )
-        else:
-            send_message(chat_id, "❌ Ошибка создания задачи", kb_content_menu())
-        DB.set_user_state(user_id, 'content:menu')
-        return True
+            # Create trend analysis task - save as generated content with type 'trend'
+            try:
+                task = DB.save_generated_content(
+                    user_id=user_id,
+                    content="",
+                    content_type='trend',
+                    title=f"Анализ трендов",
+                    generation_params={
+                        'niche': saved.get('niche', 'general'),
+                        'channel_id': saved['channel_id'],
+                        'type': 'trend_analysis'
+                    },
+                    channel_id=saved['channel_id']
+                )
+            except Exception as e:
+                logger.error(f"Error saving generated content for trend analysis, user {user_id}: {e}", exc_info=True)
+                send_message(chat_id, "❌ Ошибка сохранения задачи. Попробуйте позже.", kb_content_menu())
+                return True
+            
+            if not task:
+                logger.warning(f"Failed to create generated_content for trend analysis, user {user_id}")
+                send_message(chat_id, "❌ Ошибка создания задачи", kb_content_menu())
+                try:
+                    DB.set_user_state(user_id, 'content:menu')
+                except:
+                    pass
+                return True
+            
+            # Get channel info
+            try:
+                channel = DB.get_user_channel(saved['channel_id'])
+            except Exception as e:
+                logger.error(f"Error getting channel {saved['channel_id']}: {e}")
+                channel = None
+            
+            # Create VPS task for trend analysis
+            try:
+                vps_task = {
+                    'task_type': 'trend_analysis',
+                    'task_data': {
+                        'channel_username': channel['channel_username'] if channel else None,
+                        'channel_id': saved['channel_id'],
+                        'posts_count': 100,
+                        'niche': saved.get('niche', 'general'),
+                        'generated_content_id': task['id']  # Link to generated_content
+                    }
+                }
+                vps_result = DB.create_vps_task(user_id, 'trend_analysis', vps_task)
+                
+                if not vps_result:
+                    logger.error(f"Failed to create VPS task for trend analysis, user {user_id}, generated_content_id={task['id']}")
+                    send_message(chat_id,
+                        f"⚠️ <b>Задача создана, но не отправлена на обработку</b>\n"
+                        f"🆔 ID: #{task['id']}\n"
+                        f"Обратитесь в поддержку.",
+                        kb_content_menu()
+                    )
+                else:
+                    logger.info(f"Created trend_analysis task for user {user_id}, task_id={task['id']}, vps_task_id={vps_result.get('id')}")
+                    send_message(chat_id,
+                        f"✅ <b>Анализ запущен!</b>\n"
+                        f"🆔 ID: #{task['id']}\n"
+                        f"Статус: ⏳ В обработке",
+                        kb_content_menu()
+                    )
+            except Exception as e:
+                logger.error(f"Error creating VPS task for trend analysis, user {user_id}: {e}", exc_info=True)
+                send_message(chat_id,
+                    f"⚠️ <b>Задача создана, но возникла ошибка при отправке</b>\n"
+                    f"🆔 ID: #{task['id']}\n"
+                    f"Попробуйте позже или обратитесь в поддержку.",
+                    kb_content_menu()
+                )
+            
+            try:
+                DB.set_user_state(user_id, 'content:menu')
+            except Exception as e:
+                logger.error(f"Error clearing user state for {user_id}: {e}")
+            
+            return True
+        except Exception as e:
+            logger.error(f"Unexpected error in _handle_trend_confirm for user {user_id}: {e}", exc_info=True)
+            send_message(chat_id, "❌ Произошла непредвиденная ошибка. Попробуйте позже.", kb_content_menu())
+            return True
     return False
 
 # ==================== DISCUSSION SUMMARY ====================
@@ -759,43 +886,103 @@ def _show_summary_confirmation(chat_id: int, user_id: int, saved: dict):
 
 def _handle_summary_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     if text == '💾 Сохранить':
-        content = DB.save_generated_content(
-            user_id=user_id,
-            content="",
-            content_type='summary',
-            title=f"Итоги за {saved['period_days']} дней",
-            generation_params={
-                'channel_id': saved['channel_id'],
-                'period_days': saved['period_days'],
-                'type': 'discussion_summary'
-            },
-            channel_id=saved['channel_id']
-        )
-        if content:
-            # Create VPS task for discussion summary
-            channel = DB.get_user_channel(saved['channel_id'])
-            # For summary, we need to analyze recent posts - get most recent post
-            # In real implementation, user should select specific post
-            # For now, we'll analyze recent posts from channel
-            vps_task = {
-                'task_type': 'discussion_summary',
-                'task_data': {
-                    'channel_username': channel['channel_username'] if channel else None,
-                    'channel_id': saved['channel_id'],
-                    'post_id': None,  # Will analyze recent posts if None
-                    'comments_count': 50,
-                    'period_days': saved['period_days']
-                }
-            }
-            DB.create_vps_task(user_id, 'discussion_summary', vps_task)
+        try:
+            # Validate required fields
+            if not saved.get('channel_id'):
+                logger.error(f"Missing channel_id for discussion summary, user {user_id}")
+                send_message(chat_id, "❌ Ошибка: не выбран канал", kb_content_menu())
+                return True
             
-            send_message(chat_id,
-                f"✅ <b>Задача создана!</b>\n"
-                f"Результат появится в разделе «Сгенерированные»",
-                kb_content_menu()
-            )
-        DB.set_user_state(user_id, 'content:menu')
-        return True
+            if not saved.get('period_days'):
+                logger.error(f"Missing period_days for discussion summary, user {user_id}")
+                send_message(chat_id, "❌ Ошибка: не указан период", kb_content_menu())
+                return True
+            
+            # Create discussion summary task
+            try:
+                content = DB.save_generated_content(
+                    user_id=user_id,
+                    content="",
+                    content_type='summary',
+                    title=f"Итоги за {saved['period_days']} дней",
+                    generation_params={
+                        'channel_id': saved['channel_id'],
+                        'period_days': saved['period_days'],
+                        'type': 'discussion_summary'
+                    },
+                    channel_id=saved['channel_id']
+                )
+            except Exception as e:
+                logger.error(f"Error saving generated content for discussion summary, user {user_id}: {e}", exc_info=True)
+                send_message(chat_id, "❌ Ошибка сохранения задачи. Попробуйте позже.", kb_content_menu())
+                return True
+            
+            if not content:
+                logger.warning(f"Failed to create generated_content for discussion summary, user {user_id}")
+                send_message(chat_id, "❌ Ошибка создания задачи", kb_content_menu())
+                try:
+                    DB.set_user_state(user_id, 'content:menu')
+                except:
+                    pass
+                return True
+            
+            # Get channel info
+            try:
+                channel = DB.get_user_channel(saved['channel_id'])
+            except Exception as e:
+                logger.error(f"Error getting channel {saved['channel_id']}: {e}")
+                channel = None
+            
+            # Create VPS task for discussion summary
+            try:
+                vps_task = {
+                    'task_type': 'discussion_summary',
+                    'task_data': {
+                        'channel_username': channel['channel_username'] if channel else None,
+                        'channel_id': saved['channel_id'],
+                        'post_id': None,  # Will analyze recent posts if None
+                        'comments_count': 50,
+                        'period_days': saved['period_days'],
+                        'generated_content_id': content['id']  # Link to generated_content
+                    }
+                }
+                vps_result = DB.create_vps_task(user_id, 'discussion_summary', vps_task)
+                
+                if not vps_result:
+                    logger.error(f"Failed to create VPS task for discussion summary, user {user_id}, generated_content_id={content['id']}")
+                    send_message(chat_id,
+                        f"⚠️ <b>Задача создана, но не отправлена на обработку</b>\n"
+                        f"🆔 ID: #{content['id']}\n"
+                        f"Обратитесь в поддержку.",
+                        kb_content_menu()
+                    )
+                else:
+                    logger.info(f"Created discussion_summary task for user {user_id}, task_id={content['id']}, vps_task_id={vps_result.get('id')}")
+                    send_message(chat_id,
+                        f"✅ <b>Задача создана!</b>\n"
+                        f"🆔 ID: #{content['id']}\n"
+                        f"Результат появится в разделе «Сгенерированные»",
+                        kb_content_menu()
+                    )
+            except Exception as e:
+                logger.error(f"Error creating VPS task for discussion summary, user {user_id}: {e}", exc_info=True)
+                send_message(chat_id,
+                    f"⚠️ <b>Задача создана, но возникла ошибка при отправке</b>\n"
+                    f"🆔 ID: #{content['id']}\n"
+                    f"Попробуйте позже или обратитесь в поддержку.",
+                    kb_content_menu()
+                )
+            
+            try:
+                DB.set_user_state(user_id, 'content:menu')
+            except Exception as e:
+                logger.error(f"Error clearing user state for {user_id}: {e}")
+            
+            return True
+        except Exception as e:
+            logger.error(f"Unexpected error in _handle_summary_confirm for user {user_id}: {e}", exc_info=True)
+            send_message(chat_id, "❌ Произошла непредвиденная ошибка. Попробуйте позже.", kb_content_menu())
+            return True
     return False
 
 # ==================== CHANNEL MANAGEMENT ====================
@@ -1189,28 +1376,60 @@ def _handle_schedule_repeat(chat_id: int, user_id: int, text: str, saved: dict) 
 def _handle_schedule_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle schedule confirmation"""
     if text == '✅ Подтвердить':
-        # Create scheduled content
-        result = DB.create_scheduled_content(
-            user_id=user_id,
-            channel_id=saved['channel_id'],
-            content=saved['content'],
-            title=saved.get('title', 'Пост'),
-            scheduled_at=saved['scheduled_at'],
-            repeat_mode=saved['repeat_mode']
-        )
-        
-        if result:
-            send_message(chat_id,
-                f"✅ <b>Пост запланирован!</b>\n\n"
-                f"📅 Публикация: <b>{saved['display_time']}</b> МСК\n"
-                f"🆔 ID: #{result['id']}",
-                kb_content_menu()
-            )
-        else:
-            send_message(chat_id, "❌ Ошибка планирования", kb_content_menu())
-        
-        DB.set_user_state(user_id, 'content:menu')
-        return True
+        try:
+            # Validate required fields
+            if not saved.get('channel_id'):
+                logger.error(f"Missing channel_id for scheduled content, user {user_id}")
+                send_message(chat_id, "❌ Ошибка: не выбран канал", kb_content_menu())
+                return True
+            
+            if not saved.get('content'):
+                logger.error(f"Missing content for scheduled content, user {user_id}")
+                send_message(chat_id, "❌ Ошибка: не указан текст поста", kb_content_menu())
+                return True
+            
+            if not saved.get('scheduled_at'):
+                logger.error(f"Missing scheduled_at for scheduled content, user {user_id}")
+                send_message(chat_id, "❌ Ошибка: не указано время публикации", kb_content_menu())
+                return True
+            
+            # Create scheduled content
+            try:
+                result = DB.create_scheduled_content(
+                    user_id=user_id,
+                    channel_id=saved['channel_id'],
+                    content=saved['content'],
+                    title=saved.get('title', 'Пост'),
+                    scheduled_at=saved['scheduled_at'],
+                    repeat_mode=saved.get('repeat_mode', 'once')
+                )
+            except Exception as e:
+                logger.error(f"Error creating scheduled content for user {user_id}: {e}", exc_info=True)
+                send_message(chat_id, "❌ Ошибка планирования. Попробуйте позже.", kb_content_menu())
+                return True
+            
+            if result:
+                logger.info(f"Created scheduled content for user {user_id}, content_id={result.get('id')}, scheduled_at={saved.get('display_time')}")
+                send_message(chat_id,
+                    f"✅ <b>Пост запланирован!</b>\n\n"
+                    f"📅 Публикация: <b>{saved['display_time']}</b> МСК\n"
+                    f"🆔 ID: #{result['id']}",
+                    kb_content_menu()
+                )
+            else:
+                logger.warning(f"Failed to create scheduled content for user {user_id}")
+                send_message(chat_id, "❌ Ошибка планирования", kb_content_menu())
+            
+            try:
+                DB.set_user_state(user_id, 'content:menu')
+            except Exception as e:
+                logger.error(f"Error clearing user state for {user_id}: {e}")
+            
+            return True
+        except Exception as e:
+            logger.error(f"Unexpected error in _handle_schedule_confirm for user {user_id}: {e}", exc_info=True)
+            send_message(chat_id, "❌ Произошла непредвиденная ошибка. Попробуйте позже.", kb_content_menu())
+            return True
     
     return False
 
@@ -1289,27 +1508,59 @@ def _handle_link_schedule(chat_id: int, user_id: int, text: str, saved: dict) ->
 def _handle_link_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle link confirmation"""
     if text == '✅ Подтвердить':
-        # Create template schedule
-        result = DB.create_template_schedule(
-            user_id=user_id,
-            template_id=saved['template_id'],
-            channel_id=saved['channel_id'],
-            publish_time=saved['post_time'],
-            repeat_mode='daily'  # Default to daily
-        )
-        
-        if result:
-            send_message(chat_id,
-                f"✅ <b>Шаблон связан!</b>\n\n"
-                f"Публикация будет происходить автоматически.\n"
-                f"Управляйте в разделе «⚙️ Автопостинг»",
-                kb_content_menu()
-            )
-        else:
-            send_message(chat_id, "❌ Ошибка создания связи", kb_content_menu())
-        
-        DB.set_user_state(user_id, 'content:menu')
-        return True
+        try:
+            # Validate required fields
+            if not saved.get('template_id'):
+                logger.error(f"Missing template_id for template schedule, user {user_id}")
+                send_message(chat_id, "❌ Ошибка: не выбран шаблон", kb_content_menu())
+                return True
+            
+            if not saved.get('channel_id'):
+                logger.error(f"Missing channel_id for template schedule, user {user_id}")
+                send_message(chat_id, "❌ Ошибка: не выбран канал", kb_content_menu())
+                return True
+            
+            if not saved.get('post_time'):
+                logger.error(f"Missing post_time for template schedule, user {user_id}")
+                send_message(chat_id, "❌ Ошибка: не указано время публикации", kb_content_menu())
+                return True
+            
+            # Create template schedule
+            try:
+                result = DB.create_template_schedule(
+                    user_id=user_id,
+                    template_id=saved['template_id'],
+                    channel_id=saved['channel_id'],
+                    publish_time=saved['post_time'],
+                    repeat_mode='daily'  # Default to daily
+                )
+            except Exception as e:
+                logger.error(f"Error creating template schedule for user {user_id}: {e}", exc_info=True)
+                send_message(chat_id, "❌ Ошибка создания расписания. Попробуйте позже.", kb_content_menu())
+                return True
+            
+            if result:
+                logger.info(f"Created template schedule for user {user_id}, template_id={saved['template_id']}, channel_id={saved['channel_id']}, time={saved['post_time']}")
+                send_message(chat_id,
+                    f"✅ <b>Шаблон связан!</b>\n\n"
+                    f"⏰ Время публикации: <b>{saved['post_time']}</b>\n"
+                    f"🔄 Режим: Ежедневно",
+                    kb_content_menu()
+                )
+            else:
+                logger.warning(f"Failed to create template schedule for user {user_id}")
+                send_message(chat_id, "❌ Ошибка создания расписания", kb_content_menu())
+            
+            try:
+                DB.set_user_state(user_id, 'content:menu')
+            except Exception as e:
+                logger.error(f"Error clearing user state for {user_id}: {e}")
+            
+            return True
+        except Exception as e:
+            logger.error(f"Unexpected error in _handle_link_confirm for user {user_id}: {e}", exc_info=True)
+            send_message(chat_id, "❌ Произошла непредвиденная ошибка. Попробуйте позже.", kb_content_menu())
+            return True
     
     return False
 
@@ -1825,49 +2076,80 @@ def show_auto_templates_confirm(chat_id: int, user_id: int, saved: dict):
 def _handle_auto_templates_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> bool:
     """Handle confirmation and create VPS task"""
     if text == '✅ Подтвердить':
-        template_ids = saved.get('template_ids', [])
-        folder_id = saved.get('folder_id')
-        template_filter = saved.get('template_filter', 'expert')
-        length = saved.get('length', 'medium')
-        custom_prompt = saved.get('custom_prompt')
-        
-        if not template_ids:
-            send_message(chat_id, "❌ Не выбраны шаблоны", kb_content_menu())
-            DB.clear_user_state(user_id)
+        try:
+            template_ids = saved.get('template_ids', [])
+            folder_id = saved.get('folder_id')
+            template_filter = saved.get('template_filter', 'expert')
+            length = saved.get('length', 'medium')
+            custom_prompt = saved.get('custom_prompt')
+            
+            # Validate required fields
+            if not template_ids:
+                logger.warning(f"No templates selected for auto-generation, user {user_id}")
+                send_message(chat_id, "❌ Не выбраны шаблоны", kb_content_menu())
+                try:
+                    DB.clear_user_state(user_id)
+                except Exception as e:
+                    logger.error(f"Error clearing user state for {user_id}: {e}")
+                return True
+            
+            # Validate template_ids
+            if not isinstance(template_ids, list) or len(template_ids) == 0:
+                logger.error(f"Invalid template_ids for user {user_id}: {template_ids}")
+                send_message(chat_id, "❌ Ошибка: неверный формат шаблонов", kb_content_menu())
+                return True
+            
+            # Create VPS task
+            try:
+                task_data = {
+                    'template_ids': template_ids,
+                    'folder_id': folder_id,
+                    'template_filter': template_filter,  # Changed from template_type
+                    'length': length
+                }
+                
+                if custom_prompt:
+                    task_data['custom_prompt'] = custom_prompt
+                
+                vps_task = DB.create_vps_task(
+                    user_id=user_id,
+                    task_type='template_auto_generate',
+                    task_data=task_data,
+                    priority=5
+                )
+            except Exception as e:
+                logger.error(f"Error creating VPS task for template auto-generation, user {user_id}: {e}", exc_info=True)
+                send_message(chat_id, "❌ Ошибка создания задачи. Попробуйте позже.", kb_content_menu())
+                try:
+                    DB.clear_user_state(user_id)
+                except:
+                    pass
+                return True
+            
+            if vps_task:
+                logger.info(f"Created template_auto_generate task for user {user_id}, vps_task_id={vps_task.get('id')}, template_ids={template_ids}")
+                send_message(chat_id,
+                    f"✅ <b>Задача создана!</b>\n\n"
+                    f"🆔 ID: #{vps_task.get('id')}\n"
+                    f"📝 Исходных шаблонов: {len(template_ids)}\n"
+                    f"⏳ Генерация начнётся в ближайшее время.\n\n"
+                    f"💡 Вы получите уведомление, когда шаблоны будут готовы.",
+                    kb_content_menu()
+                )
+            else:
+                logger.error(f"Failed to create VPS task for template auto-generation, user {user_id}")
+                send_message(chat_id, "❌ Ошибка создания задачи. Попробуйте позже или обратитесь в поддержку.", kb_content_menu())
+            
+            try:
+                DB.clear_user_state(user_id)
+            except Exception as e:
+                logger.error(f"Error clearing user state for {user_id}: {e}")
+            
             return True
-        
-        # Create VPS task
-        task_data = {
-            'template_ids': template_ids,
-            'folder_id': folder_id,
-            'template_filter': template_filter,  # Changed from template_type
-            'length': length
-        }
-        
-        if custom_prompt:
-            task_data['custom_prompt'] = custom_prompt
-        
-        vps_task = DB.create_vps_task(
-            user_id=user_id,
-            task_type='template_auto_generate',
-            task_data=task_data,
-            priority=5
-        )
-        
-        if vps_task:
-            send_message(chat_id,
-                f"✅ <b>Задача создана!</b>\n\n"
-                f"🆔 ID: #{vps_task.get('id')}\n"
-                f"📝 Исходных шаблонов: {len(template_ids)}\n"
-                f"⏳ Генерация начнётся в ближайшее время.\n\n"
-                f"💡 Вы получите уведомление, когда шаблоны будут готовы.",
-                kb_content_menu()
-            )
-        else:
-            send_message(chat_id, "❌ Ошибка создания задачи", kb_content_menu())
-        
-        DB.clear_user_state(user_id)
-        return True
+        except Exception as e:
+            logger.error(f"Unexpected error in _handle_auto_templates_confirm for user {user_id}: {e}", exc_info=True)
+            send_message(chat_id, "❌ Произошла непредвиденная ошибка. Попробуйте позже.", kb_content_menu())
+            return True
     
     return False
 
