@@ -260,6 +260,15 @@ def handle_callback(callback: dict):
     # sumch: - выбор канала для итогов обсуждений
     # cp... - callbacks контент-плана (cpch, cptpl, cplch, cpview, cpdel)
     # trendmon: - управление отслеживаемыми каналами для трендов
+    # tfld:...:auto_templates - выбор папки для автосоздания шаблонов
+    # autotpl: - выбор исходных шаблонов для автосоздания
+    # IMPORTANT: Check auto_templates callbacks FIRST before template callbacks
+    if data.startswith('autotpl:'):
+        handle_content_callback(chat_id, msg_id, user_id, data)
+        return
+    if data.startswith('tfld:') and ':auto_templates' in data:
+        handle_content_callback(chat_id, msg_id, user_id, data)
+        return
     if (
         data.startswith('uch:') or
         data.startswith('gcont:') or
@@ -267,9 +276,7 @@ def handle_callback(callback: dict):
         data.startswith('trendch:') or
         data.startswith('sumch:') or
         data.startswith('cp') or
-        data.startswith('trendmon:') or
-        (data.startswith('tfld:') and ':auto_templates' in data) or
-        data.startswith('autotpl:')
+        data.startswith('trendmon:')
     ):
         handle_content_callback(chat_id, msg_id, user_id, data)
         return
