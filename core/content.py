@@ -1616,7 +1616,8 @@ def handle_content_plan_callback(chat_id: int, msg_id: int, user_id: int, data: 
 
 def start_template_selection(chat_id: int, user_id: int, saved: dict):
     """Start template selection for auto-generation"""
-    templates = DB.get_templates(user_id, folder_id=saved.get('folder_id'))
+    # Get ALL templates (not filtered by folder_id) - folder_id is for saving new templates, not for selecting source templates
+    templates = DB.get_templates(user_id)
     
     if not templates:
         send_message(chat_id,
@@ -1717,7 +1718,7 @@ def _handle_auto_templates_prompt(chat_id: int, user_id: int, text: str, saved: 
     prompt = text.strip()
     
     # If user sends "-", skip prompt
-    if prompt == '-' or prompt.lower() == 'пропустить':
+    if prompt == '-' or prompt.lower() == 'пропустить' or prompt == '':
         saved['custom_prompt'] = None
     else:
         # Validate prompt length
@@ -1725,11 +1726,11 @@ def _handle_auto_templates_prompt(chat_id: int, user_id: int, text: str, saved: 
             send_message(chat_id, "❌ Промпт слишком длинный (максимум 500 символов)", kb_back_cancel())
             return True
         
-        if len(prompt) < 10 and prompt != '':
+        if len(prompt) < 10:
             send_message(chat_id, "❌ Промпт слишком короткий (минимум 10 символов) или отправьте \"-\" для пропуска", kb_back_cancel())
             return True
         
-        saved['custom_prompt'] = prompt if prompt else None
+        saved['custom_prompt'] = prompt
     
     DB.set_user_state(user_id, 'content:auto_templates:confirm', saved)
     show_auto_templates_confirm(chat_id, user_id, saved)
