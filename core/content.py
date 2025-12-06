@@ -1279,7 +1279,7 @@ def _handle_link_confirm(chat_id: int, user_id: int, text: str, saved: dict) -> 
             user_id=user_id,
             template_id=saved['template_id'],
             channel_id=saved['channel_id'],
-            post_time=saved['post_time'],
+            publish_time=saved['post_time'],
             repeat_mode='daily'  # Default to daily
         )
         
@@ -1408,7 +1408,8 @@ def show_autopost_settings(chat_id: int, user_id: int):
     
     # Get active template schedules
     schedules = DB.get_template_schedules(user_id)
-    active_count = len([s for s in schedules if s.get('status') == 'active'])
+    # Используем is_active (boolean) вместо status
+    active_count = len([s for s in schedules if (s.get('is_active', False) if isinstance(s.get('is_active'), bool) else (s.get('status') == 'active' if s.get('status') else False))])
     
     send_message(chat_id,
         f"⚙️ <b>Автопостинг</b>\n\n"
@@ -1469,10 +1470,14 @@ def _handle_autopost_settings(chat_id: int, user_id: int, text: str, saved: dict
             template_name = template.get('name', '?')[:20] if template else '?'
             channel_name = f"@{channel['channel_username']}" if channel else '?'
             
-            status = '🟢' if s.get('status') == 'active' else '⏸'
+            # Используем is_active (boolean) вместо status
+            is_active = s.get('is_active', False) if isinstance(s.get('is_active'), bool) else (s.get('status') == 'active' if s.get('status') else False)
+            status = '🟢' if is_active else '⏸'
             
             text += f"{status} {template_name} → {channel_name}\n"
-            text += f"   ⏰ {s.get('post_time', '?')}\n\n"
+            # Используем publish_time вместо post_time
+            publish_time = s.get('publish_time') or s.get('post_time', '?')
+            text += f"   ⏰ {publish_time}\n\n"
         
         send_message(chat_id, text, kb_content_menu())
         show_autopost_settings(chat_id, user_id)
